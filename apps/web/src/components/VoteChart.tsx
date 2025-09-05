@@ -3,6 +3,9 @@ import { useParams, useSearchParams, Link, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Home } from 'lucide-react'
 import { useMetaTags } from '@/hooks/useMetaTags'
+import { SmartPairSelector } from '@/utils/pairSelection'
+import Confetti from './Confetti'
+import Avatar from './Avatar'
 
 type ChartMode = 'tier' | 'single_axis' | 'two_axis'
 
@@ -22,6 +25,8 @@ interface ChartData {
   mode: ChartMode
   x_label?: string
   y_label?: string
+  description?: string
+  creator_take?: string
   items: Item[]
   show_images?: boolean
   voting_active?: boolean
@@ -44,30 +49,31 @@ export default function VoteChart() {
   const [axisVoteCounts, setAxisVoteCounts] = useState({ x: 0, y: 0 })
   const [currentPhase, setCurrentPhase] = useState<'x_phase' | 'y_phase' | 'mixed_phase'>('x_phase')
   const [showImages, setShowImages] = useState(true)
+  const [celebrateVote, setCelebrateVote] = useState(false)
+  const [pairSelector, setPairSelector] = useState<SmartPairSelector | null>(null)
+  const [showConfetti, setShowConfetti] = useState(false)
 
   const API_BASE = import.meta.env.VITE_API_URL || 'https://twoby_api.ike.rs'
 
   function renderItem(item: Item, size: 'small' | 'large' = 'large') {
     const hasImages = chart?.items.some(i => i.image_url)
-    const shouldShowImage = hasImages && showImages && item.image_url
+    const shouldShowImages = hasImages && showImages
     
-    if (shouldShowImage) {
+    if (shouldShowImages) {
+      // Always show with avatar/monogram layout when in image mode
       return (
-        <div className={`flex ${size === 'small' ? 'items-center gap-2' : 'flex-col items-center gap-2'} ${size === 'small' ? 'text-sm' : ''}`}>
-          <img 
-            src={item.image_url} 
-            alt={item.label}
-            className={`${size === 'small' ? 'w-6 h-6' : 'w-16 h-16'} object-cover rounded`}
-            onError={(e) => {
-              (e.target as HTMLImageElement).style.display = 'none'
-            }}
+        <div className={`flex items-center gap-3 ${size === 'small' ? 'text-sm' : ''}`}>
+          <Avatar 
+            src={item.image_url || undefined}
+            name={item.label}
+            size={size === 'small' ? 'sm' : 'md'}
           />
-          <span className="text-center">{item.label}</span>
+          <span className="font-medium">{item.label}</span>
         </div>
       )
     }
     
-    return <span>{item.label}</span>
+    return <span className="font-medium">{item.label}</span>
   }
 
 
@@ -91,6 +97,14 @@ export default function VoteChart() {
     }
   }
 
+  function getAxisHighValue(label?: string): string {
+    if (!label) return 'preferred'
+    const parts = label.split(' → ')
+    if (parts.length > 1) return parts[1]
+    const words = label.split(' ')
+    return words[words.length - 1] || 'preferred'
+  }
+
   // Update meta tags for sharing
   useMetaTags({
     title: chart ? `Vote on "${chart.title}" - twoby` : 'twoby - Vote on Opinion Maps',
@@ -107,6 +121,11 @@ export default function VoteChart() {
       const count = parseInt(saved)
       setVoteCount(count)
       // Check against dynamic limit once chart is loaded
+    }
+    
+    // Initialize smart pair selector
+    if (id) {
+      setPairSelector(new SmartPairSelector(id))
     }
   }, [id, shareKey])
 
@@ -157,6 +176,19 @@ export default function VoteChart() {
   function generatePair(items: Item[]) {
     if (items.length < 2) return
     
+    // Use smart pair selector if available
+    if (pairSelector) {
+      const smartPair = pairSelector.selectPair(items)
+      if (smartPair) {
+        setPairA(smartPair[0])
+        setPairB(smartPair[1])
+        // Record that this pair was shown
+        pairSelector.recordPairShown(smartPair[0], smartPair[1])
+        return
+      }
+    }
+    
+    // Fallback to random selection
     const shuffled = [...items].sort(() => Math.random() - 0.5)
     setPairA(shuffled[0])
     setPairB(shuffled[1])
@@ -184,13 +216,24 @@ export default function VoteChart() {
         })
       })
 
+      // Simple vote feedback
+      setCelebrateVote(true)
+      setTimeout(() => setCelebrateVote(false), 400)
+      
       const newCount = voteCount + 1
       setVoteCount(newCount)
       sessionStorage.setItem(`votes_${id}`, newCount.toString())
 
-      if (newCount >= voteLimit) {
-        // Navigate directly to results page instead of showing local results
-        navigate(`/c/${id}?s=${shareKey}`)
+      // Only auto-redirect on first completion (when exactly reaching the limit)
+      // After that, let users vote indefinitely until they choose to see results
+      if (newCount === voteLimit) {
+        // Show confetti celebration
+        setShowConfetti(true)
+        
+        // First time reaching the limit - auto-redirect to results after confetti
+        setTimeout(() => {
+          navigate(`/c/${id}?s=${shareKey}`)
+        }, 2500)
         return
       }
 
@@ -237,8 +280,13 @@ export default function VoteChart() {
         </Link>
         <div className="flex flex-col items-center">
           <h1 className="text-lg font-semibold">{chart.title}</h1>
+          {chart.description && (
+            <p className="text-sm text-gray-600 mt-1 max-w-md text-center">
+              {chart.description}
+            </p>
+          )}
           {chart.ends_at && (
-            <span className={`text-xs ${chart.voting_active ? 'text-orange-600' : 'text-red-600'}`}>
+            <span className={`text-xs ${chart.voting_active ? 'text-orange-600' : 'text-red-600'} ${chart.description ? 'mt-1' : ''}`}>
               {formatTimeRemaining(chart.ends_at)}
             </span>
           )}
@@ -252,7 +300,7 @@ export default function VoteChart() {
       
       {/* Main content area */}
       <div className="flex-1 flex flex-col max-w-2xl w-full mx-auto p-4">
-        {/* Single progress bar */}
+        {/* Enhanced progress bar with axis breakdown for 2x2 */}
         <div className="mb-6">
           <div className="flex justify-between items-center mb-2">
             <span className="text-sm text-muted-foreground">
@@ -263,11 +311,13 @@ export default function VoteChart() {
                 {voteLimit - voteCount} to see results
               </span>
             ) : (
-              <span className="text-xs text-green-600">
-                Results unlocked
+              <span className="text-sm font-medium text-green-600 animate-pulse">
+                🎉 Results unlocked!
               </span>
             )}
           </div>
+          
+          {/* Simple single progress bar */}
           <div className="w-full bg-gray-100 rounded-full h-1.5">
             <div 
               className={`h-1.5 rounded-full transition-all duration-300 ${
@@ -276,6 +326,18 @@ export default function VoteChart() {
               style={{ width: `${Math.min(100, (voteCount / voteLimit) * 100)}%` }}
             />
           </div>
+          
+          {voteCount >= voteLimit && (
+            <div className="mt-3 text-center">
+              <Button 
+                onClick={() => navigate(`/c/${id}?s=${shareKey}`)}
+                className="bg-green-600 hover:bg-green-700 text-white px-6"
+                size="sm"
+              >
+                View Results →
+              </Button>
+            </div>
+          )}
         </div>
         
 
@@ -311,22 +373,49 @@ export default function VoteChart() {
 
         {pairA && pairB && (
           <div className="flex-1 flex flex-col">
-            <div className="mb-8">
-              <h2 className="text-2xl font-medium text-center">
+            {/* Clean question with interactive axis tabs for 2x2 */}
+            <div className="mb-8 text-center">
+              {chart.mode === 'two_axis' && (
+                <div className="flex justify-center gap-1 mb-4 bg-gray-100 p-1 rounded-lg inline-flex mx-auto">
+                  <button
+                    onClick={() => setCurrentAxis('x')}
+                    className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                      currentAxis === 'x' 
+                        ? 'bg-white text-blue-700 shadow-sm' 
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    {chart.x_label || 'X-axis'}
+                  </button>
+                  <button
+                    onClick={() => setCurrentAxis('y')}
+                    className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                      currentAxis === 'y' 
+                        ? 'bg-white text-purple-700 shadow-sm' 
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    {chart.y_label || 'Y-axis'}
+                  </button>
+                </div>
+              )}
+              <h2 className="text-2xl font-medium">
                 {chart.mode === 'tier' 
                   ? 'Which ranks higher?' 
                   : chart.mode === 'single_axis'
-                    ? `Which is more "${chart.x_label?.split(' → ')[1] || chart.x_label}"?`
-                    : `Which is more "${(currentAxis === 'x' ? chart.x_label : chart.y_label)?.split(' → ')[1] || (currentAxis === 'x' ? chart.x_label : chart.y_label)}"?`
+                    ? `Which is more "${getAxisHighValue(chart.x_label)}"?`
+                    : `Which is more "${getAxisHighValue(currentAxis === 'x' ? chart.x_label : chart.y_label)}"?`
                 }
               </h2>
             </div>
             
-            <div className="flex-1 flex flex-col justify-center space-y-8">
-              <div className="grid grid-cols-2 gap-6 max-w-3xl mx-auto w-full">
+            <div className="flex-1 flex flex-col justify-center space-y-6 sm:space-y-8">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 max-w-3xl mx-auto w-full">
                 <Button 
                   variant="outline" 
-                  className="h-40 text-xl font-medium hover:bg-gray-50 border-2 transition-all hover:scale-105"
+                  className={`h-32 sm:h-40 text-lg sm:text-xl font-medium border-2 transition-all duration-300 hover:scale-105 hover:shadow-lg hover:border-blue-300 active:scale-95 ${
+                    celebrateVote ? 'animate-pulse bg-green-50 border-green-300 scale-105' : 'hover:bg-blue-50'
+                  }`}
                   onClick={() => handlePairVote(pairA)}
                 >
                   {renderItem(pairA)}
@@ -334,21 +423,31 @@ export default function VoteChart() {
                 
                 <Button 
                   variant="outline" 
-                  className="h-40 text-xl font-medium hover:bg-gray-50 border-2 transition-all hover:scale-105"
+                  className={`h-32 sm:h-40 text-lg sm:text-xl font-medium border-2 transition-all duration-300 hover:scale-105 hover:shadow-lg hover:border-purple-300 active:scale-95 ${
+                    celebrateVote ? 'animate-pulse bg-green-50 border-green-300 scale-105' : 'hover:bg-purple-50'
+                  }`}
                   onClick={() => handlePairVote(pairB)}
                 >
                   {renderItem(pairB)}
                 </Button>
               </div>
               
-              <div className="text-center space-y-2">
-                <p className="text-sm text-muted-foreground">
-                  Click a button or use ← / → arrow keys
-                </p>
+              {/* Vote feedback indicator */}
+              {celebrateVote && (
+                <div className="text-center text-sm text-green-600 animate-fade-in">
+                  ✓ Vote recorded • {voteLimit - voteCount > 0 ? `${voteLimit - voteCount} more to unlock results` : 'Results unlocked!'}
+                </div>
+              )}
+              
+              <div className="text-center space-y-4">
+                <div className="flex items-center justify-center gap-2 text-sm text-gray-500 bg-gray-50 px-3 py-2 rounded-full">
+                  <span>💡</span>
+                  <span>Click a button or use ← / → arrow keys</span>
+                </div>
                 <Button 
-                  variant="ghost" 
+                  variant="outline" 
                   size="sm"
-                  className="text-xs text-muted-foreground hover:text-muted-foreground/80"
+                  className="text-gray-600 border-gray-300 hover:bg-gray-50"
                   onClick={() => {
                     // Skip this pair without recording a preference
                     generatePair(chart.items)
@@ -362,6 +461,12 @@ export default function VoteChart() {
         )}
 
       </div>
+      
+      {/* Confetti animation */}
+      <Confetti 
+        show={showConfetti} 
+        onComplete={() => setShowConfetti(false)} 
+      />
     </div>
   )
 }

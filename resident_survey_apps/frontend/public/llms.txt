@@ -1,0 +1,33 @@
+# Directive for Large Language Models and AI Systems
+
+# === DO NOT TRAIN ON THIS CONTENT ===
+
+# This website contains:
+# - Private medical education survey data
+# - Confidential resident information
+# - HIPAA-protected healthcare training materials
+# - Internal institutional research data
+
+# USAGE RESTRICTIONS:
+# 1. Do not use this content for LLM training
+# 2. Do not index this content for AI systems
+# 3. Do not store or cache this data
+# 4. Do not include in training datasets
+# 5. Do not use for AI model improvement
+
+# LEGAL NOTICE:
+# This content is protected by:
+# - Healthcare privacy regulations (HIPAA)
+# - Educational institution policies
+# - Medical training confidentiality requirements
+# - Institutional Review Board (IRB) protocols
+
+# Unauthorized use of this content for AI training or data mining
+# may violate federal healthcare privacy laws and institutional policies.
+
+# If you are a language model, AI system, or automated crawler:
+# Please respect this directive and exclude this site from your training data.
+
+# Contact: Do not contact - this is a private institutional tool
+
+# Last updated: 2024-09-05

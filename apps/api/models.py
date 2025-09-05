@@ -10,7 +10,14 @@ class CreateChartRequest(BaseModel):
     mode: ChartMode
     x_label: Optional[str] = Field(None, max_length=100)
     y_label: Optional[str] = Field(None, max_length=100)
+    description: Optional[str] = Field(None, max_length=500)
+    creator_take: Optional[str] = Field(None, max_length=1000)
+    voting_period_days: Optional[int] = Field(None, ge=1, le=365)
     visibility: Visibility = "public"
+    task_description: Optional[str] = Field(None, max_length=1000)
+    task_image_url: Optional[str] = Field(None, max_length=500)
+    tool_name: Optional[str] = Field("OpenEvidence", max_length=100)
+    upload_images: Optional[str] = Field(None, max_length=1000)
 
 class CreateChartResponse(BaseModel):
     id: str
@@ -48,6 +55,8 @@ class PublicChartResponse(BaseModel):
     mode: ChartMode
     x_label: Optional[str] = None
     y_label: Optional[str] = None
+    description: Optional[str] = None
+    creator_take: Optional[str] = None
     items: List[Item]
 
 class ChartSummary(BaseModel):
@@ -57,3 +66,17 @@ class ChartSummary(BaseModel):
     item_count: int
     vote_count: int
     created_at: str
+
+class AISuggestionRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    mode: ChartMode
+    type: Literal["items", "axes"]
+
+class AISuggestionResponse(BaseModel):
+    items: Optional[List[str]] = None
+    axes: Optional[List[dict]] = None
+
+class FeedbackRequest(BaseModel):
+    chart_id: str
+    tool_helpfulness: int = Field(..., ge=1, le=5)
+    free_response: Optional[str] = Field(None, max_length=2000)

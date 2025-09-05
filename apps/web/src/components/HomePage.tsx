@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Plus, BarChart3, TrendingUp, Grid3X3, Users, Clock } from 'lucide-react'
+import { Plus, BarChart3, TrendingUp, Grid3X3, Users, Clock, Flame, Sparkles, Star } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { formatRelativeTime } from '@/utils/timeFormatting'
 
 interface ChartSummary {
   id: string
@@ -46,23 +48,6 @@ function getModeLabel(mode: string) {
   }
 }
 
-function formatDate(dateString: string) {
-  // Handle both old format (with +00:00Z) and new format (with just Z)
-  const cleanDate = dateString.replace('+00:00Z', 'Z')
-  const date = new Date(cleanDate)
-  
-  // If date is invalid, try without Z
-  if (isNaN(date.getTime())) {
-    return 'Recently'
-  }
-  
-  return date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit'
-  })
-}
 
 // Mini preview components for different chart types
 function MiniTierList({ items }: { items: any[] }) {
@@ -129,14 +114,20 @@ function MiniScatterPlot({ items, chart }: { items: any[], chart?: any }) {
         <div className="h-full w-px bg-gray-300"></div>
       </div>
       
-      {/* Axis Labels */}
+      {/* Axis Labels with Tooltips */}
       {chart && (
         <>
-          <div className="absolute bottom-1 left-1/2 transform -translate-x-1/2 text-xs text-gray-500 truncate max-w-16">
-            {chart.x_label}
+          <div 
+            className="absolute bottom-1 left-1/2 transform -translate-x-1/2 text-xs text-gray-600 truncate max-w-20 cursor-help"
+            title={chart.x_label || ''}
+          >
+            {chart.x_label && chart.x_label.length > 12 ? `${chart.x_label.substring(0, 12)}...` : chart.x_label}
           </div>
-          <div className="absolute left-1 top-1/2 transform -translate-y-1/2 -rotate-90 text-xs text-gray-500 truncate max-w-16">
-            {chart.y_label}
+          <div 
+            className="absolute left-1 top-1/2 transform -translate-y-1/2 -rotate-90 text-xs text-gray-600 truncate max-w-20 cursor-help"
+            title={chart.y_label || ''}
+          >
+            {chart.y_label && chart.y_label.length > 12 ? `${chart.y_label.substring(0, 12)}...` : chart.y_label}
           </div>
         </>
       )}
@@ -177,7 +168,14 @@ function MiniBarChart({ items }: { items: any[] }) {
 
 function ChartPreviewComponent({ chart, preview }: { chart: ChartSummary, preview: ChartPreview | null }) {
   if (!preview || preview.items.length === 0) {
-    return <div className="h-24 bg-gray-100 rounded flex items-center justify-center text-sm text-gray-500">No data yet</div>
+    return (
+      <div className="h-12 bg-gradient-to-br from-gray-50 to-gray-100/50 rounded-lg flex items-center justify-center border border-gray-100">
+        <div className="text-center flex items-center gap-2">
+          <div className="w-2 h-2 bg-gray-300 rounded-full animate-pulse"></div>
+          <div className="text-xs text-gray-400 font-medium">Vote to see results</div>
+        </div>
+      </div>
+    )
   }
   
   switch (chart.mode) {
@@ -196,11 +194,22 @@ export default function HomePage() {
   const [charts, setCharts] = useState<ChartSummary[]>([])
   const [previews, setPreviews] = useState<Record<string, ChartPreview>>({})
   const [isLoading, setIsLoading] = useState(true)
+  const [activeFilter, setActiveFilter] = useState<'trending' | 'new' | 'featured'>('trending')
 
   const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
   useEffect(() => {
     loadCharts()
+    
+    // Listen for admin changes (simple approach using storage events)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key?.startsWith('admin_')) {
+        loadCharts() // Reload when admin data changes
+      }
+    }
+    
+    window.addEventListener('storage', handleStorageChange)
+    return () => window.removeEventListener('storage', handleStorageChange)
   }, [])
 
   async function loadCharts() {
@@ -208,7 +217,24 @@ export default function HomePage() {
       const response = await fetch(`${API_BASE}/api/charts/public`)
       if (response.ok) {
         const data = await response.json()
-        setCharts(data)
+        
+        // Get admin data from localStorage
+        const deletedCharts = JSON.parse(localStorage.getItem('admin_deleted_charts') || '[]')
+        const savedHotCharts = JSON.parse(localStorage.getItem('admin_hot_charts') || '[]')
+        const savedFeaturedCharts = JSON.parse(localStorage.getItem('admin_featured_charts') || '[]')
+        
+        // Filter out deleted charts first
+        const filteredData = data.filter((chart: ChartSummary) => !deletedCharts.includes(chart.id))
+        
+        // Add enhanced metadata for social proof
+        const enhancedData = filteredData.map((chart: ChartSummary) => ({
+          ...chart,
+          views: Math.floor(Math.random() * 1000) + chart.vote_count * 3, // Simulated view count
+          trending: savedHotCharts.includes(chart.id), // Use real hot data from admin
+          featured: savedFeaturedCharts.includes(chart.id), // Use real featured data from admin
+          voteRate: chart.vote_count > 0 ? (chart.vote_count / Math.max(1, (Date.now() - new Date(chart.created_at).getTime()) / (1000 * 60 * 60))).toFixed(1) : 0
+        }))
+        setCharts(enhancedData)
         
         // Load previews for charts that have items
         const previewPromises = data
@@ -247,13 +273,13 @@ export default function HomePage() {
     <div className="min-h-screen bg-white">
       <div className="container mx-auto py-8 px-4">
         {/* Hero Section */}
-        <div className="text-center mb-16">
+        <div className="text-center mb-20">
           <h1 className="text-5xl font-bold text-gray-900 mb-4">twoby</h1>
-          <p className="text-xl text-gray-600 mb-8 max-w-2xl mx-auto">
+          <p className="text-lg text-gray-600 mb-10 max-w-2xl mx-auto">
             Create collaborative opinion maps and see what your friends really think
           </p>
           <Link to="/create">
-            <Button size="lg" className="text-lg px-8 py-4">
+            <Button size="lg" className="text-lg px-8 py-4 mb-4">
               <Plus className="w-5 h-5 mr-2" />
               Create Chart
             </Button>
@@ -284,17 +310,51 @@ export default function HomePage() {
         {/* Charts Grid */}
         {(charts.length > 0 || isLoading) && (
           <div>
-            <div className="text-center mb-8">
-              <h2 className="text-3xl font-bold text-gray-900 mb-2">Explore Public Charts</h2>
-              <p className="text-gray-600 mb-4">
+            <div className="mb-16">
+              <h2 className="text-3xl font-bold text-gray-900 mb-3 text-center">Explore Public Charts</h2>
+              <p className="text-gray-600 mb-12 text-center">
                 {charts.length} chart{charts.length !== 1 ? 's' : ''} available • Vote to see results
               </p>
-              <Link to="/create">
-                <Button variant="outline" className="mr-2">
-                  <Plus className="w-4 h-4 mr-2" />
-                  Create Your Own
-                </Button>
-              </Link>
+              
+              {/* Filter Tabs Row */}
+              <div className="flex justify-center mb-8">
+                <div className="inline-flex rounded-lg border bg-gray-100 p-1">
+                  <button
+                    onClick={() => setActiveFilter('trending')}
+                    className={`px-6 py-3 rounded-md text-sm font-medium transition-colors flex items-center ${
+                      activeFilter === 'trending'
+                        ? 'bg-white text-blue-600 shadow-sm'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    <Flame className="w-4 h-4 mr-2" />
+                    Trending
+                  </button>
+                  <button
+                    onClick={() => setActiveFilter('new')}
+                    className={`px-6 py-3 rounded-md text-sm font-medium transition-colors flex items-center ${
+                      activeFilter === 'new'
+                        ? 'bg-white text-blue-600 shadow-sm'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    <Sparkles className="w-4 h-4 mr-2" />
+                    New
+                  </button>
+                  <button
+                    onClick={() => setActiveFilter('featured')}
+                    className={`px-6 py-3 rounded-md text-sm font-medium transition-colors flex items-center ${
+                      activeFilter === 'featured'
+                        ? 'bg-white text-blue-600 shadow-sm'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    <Star className="w-4 h-4 mr-2" />
+                    Featured
+                  </button>
+                </div>
+              </div>
+              
             </div>
 
             {isLoading ? (
@@ -305,22 +365,68 @@ export default function HomePage() {
               </div>
             ) : (
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {charts.map(chart => {
+                {charts
+                  .filter(chart => {
+                    if (activeFilter === 'trending') return (chart as any).trending || chart.vote_count > 5
+                    if (activeFilter === 'featured') return (chart as any).featured || chart.vote_count > 10
+                    return true // 'new' shows all sorted by date
+                  })
+                  .sort((a, b) => {
+                    if (activeFilter === 'trending') {
+                      return ((b as any).voteRate || 0) - ((a as any).voteRate || 0)
+                    }
+                    if (activeFilter === 'featured') {
+                      return b.vote_count - a.vote_count
+                    }
+                    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                  })
+                  .map((chart, index) => {
                   // Create share URL for viewing/voting
                   const shareUrl = `/v/${chart.id}?s=public`
                   const resultsUrl = `/c/${chart.id}?s=public`
                   
                   return (
-                    <Card key={chart.id} className="hover:shadow-lg transition-shadow cursor-pointer group">
+                    <Card key={chart.id} className="hover:shadow-lg transition-shadow cursor-pointer group relative overflow-hidden">
+                      {/* Trending/Featured Badges */}
+                      {(chart as any).trending && index < 3 && activeFilter === 'trending' && (
+                        <div className="absolute top-2 right-2 z-10">
+                          <Badge className="bg-gradient-to-r from-orange-500 to-red-500 text-white border-0">
+                            <Flame className="w-3 h-3 mr-1" />
+                            Hot
+                          </Badge>
+                        </div>
+                      )}
+                      {(chart as any).featured && activeFilter === 'featured' && index === 0 && (
+                        <div className="absolute top-2 right-2 z-10">
+                          <Badge className="bg-gradient-to-r from-purple-500 to-blue-500 text-white border-0">
+                            <Star className="w-3 h-3 mr-1" />
+                            Featured
+                          </Badge>
+                        </div>
+                      )}
+                      {activeFilter === 'new' && index === 0 && (
+                        <div className="absolute top-2 right-2 z-10">
+                          <Badge className="bg-gradient-to-r from-green-500 to-emerald-500 text-white border-0">
+                            <Sparkles className="w-3 h-3 mr-1" />
+                            New
+                          </Badge>
+                        </div>
+                      )}
+                      
                       <CardHeader className="pb-3">
                         <div className="flex items-start justify-between">
                           <div className="flex items-center gap-2 text-sm text-gray-500">
                             {getModeIcon(chart.mode)}
                             <span>{getModeLabel(chart.mode)}</span>
                           </div>
-                          <div className="flex items-center gap-1 text-xs text-gray-400">
+                          <div 
+                            className="flex items-center gap-1 text-xs cursor-help"
+                            title={formatRelativeTime(chart.created_at).absolute}
+                          >
                             <Clock className="w-3 h-3" />
-                            {formatDate(chart.created_at)}
+                            <span className={formatRelativeTime(chart.created_at).className}>
+                              {formatRelativeTime(chart.created_at).relative}
+                            </span>
                           </div>
                         </div>
                         <CardTitle className="text-lg leading-tight group-hover:text-blue-600 transition-colors">
@@ -330,11 +436,10 @@ export default function HomePage() {
                       <CardContent className="pt-0">
                         <div className="flex items-center justify-between text-sm text-gray-500 mb-3">
                           <div className="flex items-center gap-1">
-                            <span>{chart.item_count} items</span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <Users className="w-4 h-4" />
-                            <span>{chart.vote_count} votes</span>
+                            <Users className="w-3.5 h-3.5" />
+                            <span className="font-medium">
+                              {chart.vote_count} {chart.vote_count === 1 ? 'vote' : 'votes'}
+                            </span>
                           </div>
                         </div>
                         
@@ -343,15 +448,15 @@ export default function HomePage() {
                           <ChartPreviewComponent chart={chart} preview={previews[chart.id] || null} />
                         </div>
                         
-                        <div className="flex gap-2">
+                        <div className="flex gap-3">
                           <Link to={shareUrl} className="flex-1">
-                            <Button variant="outline" className="w-full" size="sm">
-                              Vote
+                            <Button variant="outline" className="w-full h-10 text-sm font-medium">
+                              {chart.vote_count === 0 ? 'Be First to Vote' : 'Vote'}
                             </Button>
                           </Link>
                           <Link to={resultsUrl} className="flex-1">
-                            <Button className="w-full" size="sm">
-                              Results
+                            <Button className="w-full h-10 text-sm font-medium">
+                              {chart.vote_count === 0 ? 'Preview' : 'Results'}
                             </Button>
                           </Link>
                         </div>
@@ -368,6 +473,11 @@ export default function HomePage() {
           <p className="text-sm text-gray-500">
             Collaborative rankings • No account required • Instant results
           </p>
+          <div className="mt-4">
+            <Link to="/admin" className="text-xs text-gray-400 hover:text-gray-600 underline">
+              Admin
+            </Link>
+          </div>
         </div>
       </div>
     </div>

@@ -77,7 +77,7 @@ def generate_modal_file(assets):
     assets_code += "}\n"
     
     modal_template = f'''import modal
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Response, Request
 from fastapi.responses import HTMLResponse
 import base64
 
@@ -119,9 +119,15 @@ def serve_asset(filename: str):
     
     return Response(status_code=404)
 
-@frontend_app.get("/{{filename}}")
-def serve_static_file(filename: str):
-    """Serve static files like vite.svg, favicon.ico, etc."""
+# Serve specific static files by exact name
+@frontend_app.get("/vite.svg")
+@frontend_app.get("/favicon.ico") 
+@frontend_app.get("/manifest.json")
+@frontend_app.get("/robots.txt")
+def serve_static_file(request: Request):
+    """Serve specific static files like vite.svg, favicon.ico, etc."""
+    filename = request.url.path.lstrip('/')
+    
     if filename in ASSETS:
         content = ASSETS[filename]
         

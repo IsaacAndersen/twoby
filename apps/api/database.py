@@ -15,10 +15,18 @@ CREATE TABLE IF NOT EXISTS charts (
     title        TEXT NOT NULL,
     x_label      TEXT,
     y_label      TEXT,
+    description  TEXT,
+    creator_take TEXT,
+    voting_period_days INTEGER,
+    voting_ends_at TEXT,
     visibility   TEXT NOT NULL DEFAULT 'unlisted',
     admin_key_hash TEXT NOT NULL,
     share_key_hash TEXT NOT NULL,
-    created_at   TEXT NOT NULL
+    created_at   TEXT NOT NULL,
+    task_description TEXT,
+    task_image_url TEXT,
+    tool_name TEXT DEFAULT 'OpenEvidence',
+    upload_images TEXT
 );
 
 CREATE TABLE IF NOT EXISTS items (
@@ -75,10 +83,22 @@ CREATE TABLE IF NOT EXISTS scores (
     FOREIGN KEY(item_id) REFERENCES items(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS feedback (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    chart_id  TEXT NOT NULL,
+    tool_helpfulness INTEGER CHECK (tool_helpfulness >= 1 AND tool_helpfulness <= 5),
+    free_response TEXT,
+    session_id TEXT,
+    ip_hash   TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(chart_id) REFERENCES charts(id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_items_chart ON items(chart_id);
 CREATE INDEX IF NOT EXISTS idx_pair_votes_chart ON pair_votes(chart_id);
 CREATE INDEX IF NOT EXISTS idx_explicit_votes_chart ON explicit_votes(chart_id);
 CREATE INDEX IF NOT EXISTS idx_scores_chart ON scores(chart_id);
+CREATE INDEX IF NOT EXISTS idx_feedback_chart ON feedback(chart_id);
 """
 
 @contextmanager
@@ -100,6 +120,59 @@ def init_db():
                     conn.execute(statement)
                 except sqlite3.OperationalError:
                     pass
+        
+        # Add new columns if they don't exist (migration)
+        try:
+            conn.execute("ALTER TABLE charts ADD COLUMN description TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE charts ADD COLUMN creator_take TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE charts ADD COLUMN voting_period_days INTEGER")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE charts ADD COLUMN voting_ends_at TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE charts ADD COLUMN task_description TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE charts ADD COLUMN task_image_url TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE charts ADD COLUMN tool_name TEXT DEFAULT 'OpenEvidence'")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE charts ADD COLUMN upload_images TEXT")
+        except sqlite3.OperationalError:
+            pass
+        
+        # Create feedback table if it doesn't exist
+        try:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS feedback (
+                    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chart_id  TEXT NOT NULL,
+                    tool_helpfulness INTEGER CHECK (tool_helpfulness >= 1 AND tool_helpfulness <= 5),
+                    free_response TEXT,
+                    session_id TEXT,
+                    ip_hash   TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(chart_id) REFERENCES charts(id) ON DELETE CASCADE
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_feedback_chart ON feedback(chart_id)")
+        except sqlite3.OperationalError:
+            pass
+        
         conn.commit()
 
 def dict_from_row(row) -> Dict[str, Any]:

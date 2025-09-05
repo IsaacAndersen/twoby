@@ -3,6 +3,7 @@ import HomePage from '@/components/HomePage'
 import CreateChart from '@/components/CreateChart'
 import VoteChart from '@/components/VoteChart'
 import ViewChart from '@/components/ViewChart'
+import AdminPage from '@/components/AdminPage'
 
 function App() {
   return (
@@ -13,6 +14,7 @@ function App() {
           <Route path="/create" element={<CreateChart />} />
           <Route path="/v/:id" element={<VoteChart />} />
           <Route path="/c/:id" element={<ViewChart />} />
+          <Route path="/admin" element={<AdminPage />} />
         </Routes>
       </div>
     </Router>

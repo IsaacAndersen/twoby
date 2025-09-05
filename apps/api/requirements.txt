@@ -2,6 +2,8 @@ fastapi[standard]==0.115.0
 argon2-cffi==23.1.0
 orjson==3.10.7
 modal
+openai
+requests
 
 # Development dependencies
 pytest==8.3.3
