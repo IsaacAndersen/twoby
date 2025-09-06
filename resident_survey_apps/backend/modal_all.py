@@ -38,7 +38,7 @@ ALLOWED_TOOLS = [
     "OpenEvidence", "Copilot", "ChatGPT", "Perplexity", "SciSpace", "Consensus", 
     "Semantic Scholar", "Elicit", "Claude", "Copy-ai", "Gemini", "Med-PaLM", "Other"
 ]
-ALLOWED_TIME = ["None", "1 minute", "5 minutes", "10+ minutes", "30+ minutes"]
+ALLOWED_TIME = ["None", "1 minute", "5 minutes", "10+ minutes", "30+ minutes", "I lost time"]
 ALLOWED_VERIFY = ["Yes", "No", "Somewhat", "Not sure"]
 
 def load_anonymous_residents():
@@ -92,16 +92,14 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Resident AI Usage Survey API", lifespan=lifespan)
 
 # Configure CORS
-cors_origins = ["https://survey.ike.rs"]
-# Add development origins
-if os.environ.get("ENVIRONMENT") != "production":
-    cors_origins.extend([
-        "http://localhost:5173",
-        "http://localhost:5174", 
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:5174",
-        "https://localhost:5173"
-    ])
+cors_origins = [
+    "https://survey.ike.rs",
+    "http://localhost:5173",
+    "http://localhost:5174", 
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:5174",
+    "https://localhost:5173"
+]
 
 # Allow custom origin if specified
 if CORS_ALLOW_ORIGIN and CORS_ALLOW_ORIGIN != "*":

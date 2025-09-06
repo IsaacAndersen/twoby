@@ -29,7 +29,7 @@ const TOOLS = [
   "Semantic Scholar", "Elicit", "Claude", "Copy-ai", "Gemini", "Med-PaLM", "Other"
 ]
 const VERIFY_OPTIONS = ["Yes", "No", "Somewhat", "Not sure"]
-const TIME_OPTIONS = ["None", "1 minute", "5 minutes", "10+ minutes", "30+ minutes"]
+const TIME_OPTIONS = ["None", "1 minute", "5 minutes", "10+ minutes", "30+ minutes", "I lost time"]
 
 interface SubmissionData {
   rotation: string
@@ -245,7 +245,7 @@ export default function SubmitForm() {
     <div className="max-w-2xl mx-auto p-4">
       <div className="text-center mb-6">
         <h1 className="text-2xl font-bold mb-1">Share your AI experience</h1>
-        <p className="text-sm text-muted-foreground">≤30 seconds • Anonymous</p>
+        <p className="text-sm text-muted-foreground">Take this 30 second survey.</p>
         
         <div className="flex justify-center mt-4">
           <Badge variant="outline" className="text-xs">
@@ -278,7 +278,7 @@ export default function SubmitForm() {
 
               {/* Did you use AI? */}
               <div className="space-y-3">
-                <label className="text-sm font-medium">Did you use AI for this task?</label>
+                <label className="text-sm font-medium">Have you used AI tools recently?</label>
                 <div className="flex gap-2">
                   <Button 
                     type="button" 
@@ -311,7 +311,7 @@ export default function SubmitForm() {
                     <SelectValue placeholder="Select your current rotation" />
                   </SelectTrigger>
                   <SelectContent>
-                    {ROTATIONS.map((rotation) => (
+                    {ROTATIONS.sort().map((rotation) => (
                       <SelectItem key={rotation} value={rotation}>
                         {rotation}
                       </SelectItem>
@@ -323,7 +323,7 @@ export default function SubmitForm() {
 
               {/* Task Type */}
               <div className="space-y-2">
-                <label className="text-sm font-medium">What type of task?</label>
+                <label className="text-sm font-medium">What type of task did you use the tools for?</label>
                 <Select 
                   value={formData.task} 
                   onValueChange={(value) => handleFieldChange('task', value)}
@@ -392,7 +392,7 @@ export default function SubmitForm() {
 
               {/* Task Description */}
               <div className="space-y-2">
-                <label className="text-sm font-medium">Task description (optional)</label>
+                <label className="text-sm font-medium">Task description</label>
                 <textarea
                   rows={3}
                   placeholder="Brief description of what you used AI for..."
@@ -402,35 +402,33 @@ export default function SubmitForm() {
                 />
                 
                 {/* Image Upload */}
-                <div className="flex items-center justify-between pt-2">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleImageUpload}
-                      className="hidden"
-                      id="task-image-upload"
-                    />
-                    <label htmlFor="task-image-upload">
-                      <Button 
-                        type="button" 
-                        variant="outline" 
-                        size="sm"
-                        className="cursor-pointer"
-                        asChild
-                      >
-                        <span>
-                          <Camera className="h-4 w-4 mr-1" />
-                          Add Image
-                        </span>
-                      </Button>
-                    </label>
-                    {formData.task_image && (
-                      <Badge variant="secondary" className="text-xs">
-                        Image attached
-                      </Badge>
-                    )}
-                  </div>
+                <div className="pt-2">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageUpload}
+                    className="hidden"
+                    id="task-image-upload"
+                  />
+                  <label htmlFor="task-image-upload" className="block">
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      size="sm"
+                      className="cursor-pointer w-full justify-center"
+                      asChild
+                    >
+                      <span>
+                        <Camera className="h-4 w-4 mr-1" />
+                        Add Image (optional)
+                      </span>
+                    </Button>
+                  </label>
+                  {formData.task_image && (
+                    <Badge variant="secondary" className="text-xs mt-2">
+                      Image attached
+                    </Badge>
+                  )}
                 </div>
 
                 {/* HIPAA Warning */}
@@ -446,21 +444,22 @@ export default function SubmitForm() {
               {/* Verification */}
               <div className="space-y-2">
                 <label className="text-sm font-medium">Did you verify the output?</label>
-                <Select 
-                  value={formData.verify_conf} 
-                  onValueChange={(value) => handleFieldChange('verify_conf', value)}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select verification status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {VERIFY_OPTIONS.map((verify) => (
-                      <SelectItem key={verify} value={verify}>
-                        {verify}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="grid grid-cols-4 gap-2">
+                  {VERIFY_OPTIONS.map((verify) => (
+                    <button
+                      key={verify}
+                      type="button"
+                      onClick={() => handleFieldChange('verify_conf', verify)}
+                      className={`px-3 py-2 text-sm rounded-md border transition-colors ${
+                        formData.verify_conf === verify
+                          ? 'bg-primary text-primary-foreground border-primary'
+                          : 'bg-background border-input hover:bg-accent hover:text-accent-foreground'
+                      }`}
+                    >
+                      {verify}
+                    </button>
+                  ))}
+                </div>
                 {errors.verify_conf && <p className="text-sm text-red-500">{errors.verify_conf}</p>}
               </div>
             </>

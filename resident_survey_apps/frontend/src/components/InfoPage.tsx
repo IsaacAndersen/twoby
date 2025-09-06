@@ -7,8 +7,8 @@ export default function InfoPage() {
       <div className="text-center space-y-4">
         <h1 className="text-2xl font-bold">Welcome to our CHP Resident AI Project</h1>
         <p className="text-muted-foreground max-w-2xl mx-auto">
-          Created to encourage residents to explore and share how AI can support their training and patient care. 
-          Through this website, you can log your own experiences using AI tools and learn from the insights your peers have shared.
+          We created this portal to encourage residents to explore and share how AI can support their training and patient care. 
+          With this website, you can share your own experiences using AI tools and learn from the insights your peers have shared.
         </p>
       </div>
 
@@ -16,12 +16,13 @@ export default function InfoPage() {
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-2">
-              <BarChart3 className="h-5 w-5 text-blue-500" />
-              <CardTitle className="text-lg">Highlights Coming Soon</CardTitle>
+              <Shield className="h-5 w-5 text-red-500" />
+              <CardTitle className="text-lg">HIPAA Warning</CardTitle>
             </div>
           </CardHeader>
           <CardContent className="text-sm space-y-2">
-            <p>We are developing a "Highlights" page, which will offer quick tips, practical references, and time-saving strategies to make residency life a little easier with AI.</p>
+            <p><strong>Please avoid HIPAA violations by never using sensitive patient information on the AI tools or to our website</strong></p>
+            <p>No patient information should ever be included.</p>
           </CardContent>
         </Card>
 
@@ -41,25 +42,24 @@ export default function InfoPage() {
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-2">
-              <Shield className="h-5 w-5 text-red-500" />
-              <CardTitle className="text-lg">HIPAA Warning</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent className="text-sm space-y-2">
-            <p><strong>Please avoid HIPAA violations by never using sensitive patient information on the AI tools or to our website</strong></p>
-            <p>No patient information should ever be included.</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-2">
               <Mail className="h-5 w-5 text-orange-500" />
               <CardTitle className="text-lg">Contact & Access</CardTitle>
             </div>
           </CardHeader>
           <CardContent className="text-sm space-y-2">
             <p>Contact Sara Niederberger at <a href="mailto:niederbergers@upmc.edu" className="text-blue-600 hover:text-blue-700 underline">niederbergers@upmc.edu</a></p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <BarChart3 className="h-5 w-5 text-blue-500" />
+              <CardTitle className="text-lg">What's Next?</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="text-sm space-y-2">
+            <p>We are developing a "Highlights" page, which will include tips, references, and time-saving strategies.</p>
           </CardContent>
         </Card>
       </div>

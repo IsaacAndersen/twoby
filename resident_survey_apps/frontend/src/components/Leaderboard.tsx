@@ -199,9 +199,11 @@ export default function Leaderboard() {
             <div key={activeTab === 'teams' ? (entry as LeaderboardEntry).rotation : (entry as ResidentLeaderboardEntry).resident_name} className="flex items-center justify-between p-3 rounded-lg hover:bg-muted/50 transition-colors">
               <div className="flex items-center gap-3">
                 <Badge 
-                  variant={index === 0 ? "default" : "secondary"}
+                  variant={index < 3 ? "default" : "secondary"}
                   className={`min-w-[2rem] justify-center ${
-                    index === 0 ? "bg-yellow-500 hover:bg-yellow-600" : ""
+                    index === 0 ? "bg-yellow-500 hover:bg-yellow-600" : 
+                    index === 1 ? "bg-gray-400 hover:bg-gray-500" :
+                    index === 2 ? "bg-amber-600 hover:bg-amber-700" : ""
                   }`}
                 >
                   #{index + 1}
@@ -228,7 +230,9 @@ export default function Leaderboard() {
                 <div className="w-20 bg-muted rounded-full h-2">
                   <div 
                     className={`h-full rounded-full transition-all duration-500 ${
-                      index === 0 ? 'bg-yellow-500' : 'bg-blue-500'
+                      index === 0 ? 'bg-yellow-500' : 
+                      index === 1 ? 'bg-gray-400' :
+                      index === 2 ? 'bg-amber-600' : 'bg-blue-500'
                     }`}
                     style={{ 
                       width: `${Math.max(8, (entry.submissions / maxSubmissions) * 100)}%` 

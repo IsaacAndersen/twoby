@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Shield, BarChart3, Clock, TrendingUp, Activity, Download, Table, Eye, ChevronLeft, ChevronRight } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { getAuthHeaders } from "@/lib/auth"
+import { getAuthHeaders, getCookie } from "@/lib/auth"
 
 interface ResultsData {
   counts: {
@@ -93,10 +93,18 @@ export default function ResultsDashboard() {
   useEffect(() => {
     // Auto-load data when component mounts since user is authenticated
     loadData()
+    
+    // Try to get resident name from cookie
+    const residentName = getCookie('resident_name')
+    if (residentName) {
+      setCommentAuthor(decodeURIComponent(residentName))
+    }
   }, [])
 
-  async function loadData() {
-    setLoading(true)
+  async function loadData(skipLoadingState = false) {
+    if (!skipLoadingState) {
+      setLoading(true)
+    }
     setError(null)
 
     try {
@@ -107,8 +115,10 @@ export default function ResultsDashboard() {
 
       if (response.status === 401) {
         setError("Authentication failed. Please refresh the page.")
-        setLoading(false)
-        return
+        if (!skipLoadingState) {
+          setLoading(false)
+        }
+        return null
       }
 
       if (!response.ok) {
@@ -127,12 +137,17 @@ export default function ResultsDashboard() {
         const rawResults = await rawResponse.json()
         console.log('Raw submissions loaded:', rawResults.submissions?.length || 0)
         setRawData(rawResults)
+        return rawResults
       }
       
+      return null
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error")
+      return null
     } finally {
-      setLoading(false)
+      if (!skipLoadingState) {
+        setLoading(false)
+      }
     }
   }
 
@@ -152,8 +167,15 @@ export default function ResultsDashboard() {
       })
       
       if (response.ok) {
-        // Refresh the data to get updated likes
-        loadData()
+        // Refresh the data to get updated likes without showing loading state
+        const freshData = await loadData(true)
+        // Update the selected submission with fresh data
+        if (freshData?.submissions) {
+          const updatedSubmission = freshData.submissions.find((s: RawSubmissionEntry) => s.id === selectedSubmission.id)
+          if (updatedSubmission) {
+            setSelectedSubmission(updatedSubmission)
+          }
+        }
       }
     } catch (error) {
       console.error('Failed to toggle like:', error)
@@ -178,8 +200,15 @@ export default function ResultsDashboard() {
       
       if (response.ok) {
         setNewComment('')
-        // Refresh the data to get updated comments
-        loadData()
+        // Refresh the data to get updated comments without showing loading state
+        const freshData = await loadData(true)
+        // Update the selected submission with fresh data
+        if (freshData?.submissions) {
+          const updatedSubmission = freshData.submissions.find((s: RawSubmissionEntry) => s.id === selectedSubmission.id)
+          if (updatedSubmission) {
+            setSelectedSubmission(updatedSubmission)
+          }
+        }
       }
     } catch (error) {
       console.error('Failed to add comment:', error)
@@ -267,12 +296,11 @@ export default function ResultsDashboard() {
 
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-6">
-      <div className="text-center space-y-4">
-        <h1 className="text-2xl font-bold mb-1">Results Dashboard</h1>
-        <p className="text-sm text-muted-foreground">Aggregate insights</p>
+      <div className="space-y-4">
+        <h1 className="text-2xl font-bold text-center">Results Dashboard</h1>
         
-        {/* Tab Navigation */}
-        <div className="flex justify-center">
+        {/* Controls Row */}
+        <div className="flex justify-center items-center gap-4">
           <div className="flex gap-1 p-1 bg-muted rounded-lg">
             <Button
               variant={activeTab === 'dashboard' ? "default" : "ghost"}
@@ -293,18 +321,17 @@ export default function ResultsDashboard() {
               Raw Data
             </Button>
           </div>
+          
+          <Button 
+            onClick={handleDownloadCSV} 
+            disabled={isDownloading}
+            variant="outline" 
+            size="sm"
+          >
+            <Download className="h-4 w-4 mr-1" />
+            {isDownloading ? "Downloading..." : "Download CSV"}
+          </Button>
         </div>
-        
-        {/* Download CSV Button */}
-        <Button 
-          onClick={handleDownloadCSV} 
-          disabled={isDownloading}
-          variant="outline" 
-          size="sm"
-        >
-          <Download className="h-4 w-4 mr-1" />
-          {isDownloading ? "Downloading..." : "Download CSV"}
-        </Button>
       </div>
 
       {activeTab === 'dashboard' && (
@@ -580,10 +607,12 @@ export default function ResultsDashboard() {
           <CardContent>
             {rawData?.submissions && rawData.submissions.length > 0 ? (
               <div className="overflow-x-auto">
-                <div className="max-h-96 overflow-y-auto border rounded-lg">
+                <div className="max-h-[600px] overflow-y-auto border rounded-lg">
                   <table className="w-full text-sm">
-                    <thead className="bg-muted/50 sticky top-0">
+                    <thead className="bg-gray-100 sticky top-0 z-10">
                       <tr>
+                        <th className="text-left p-3 font-medium">Actions</th>
+                        <th className="text-left p-3 font-medium">Engagement</th>
                         <th className="text-left p-3 font-medium">Date</th>
                         <th className="text-left p-3 font-medium">Resident</th>
                         <th className="text-left p-3 font-medium">Rotation</th>
@@ -592,13 +621,43 @@ export default function ResultsDashboard() {
                         <th className="text-left p-3 font-medium">Used AI</th>
                         <th className="text-left p-3 font-medium">Rating</th>
                         <th className="text-left p-3 font-medium">Verification</th>
-                        <th className="text-left p-3 font-medium">Engagement</th>
-                        <th className="text-left p-3 font-medium">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {rawData.submissions.map((submission) => (
                         <tr key={submission.id} className="border-t hover:bg-muted/30">
+                          <td className="p-3">
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => {
+                                const index = rawData.submissions.indexOf(submission)
+                                setSelectedSubmissionIndex(index)
+                                setSelectedSubmission(submission)
+                                setDialogOpen(true)
+                              }}
+                            >
+                              <Eye className="h-3 w-3 mr-1" />
+                              View
+                            </Button>
+                          </td>
+                          <td className="p-3 text-sm">
+                            <div className="flex items-center gap-1">
+                              {submission.likes && submission.likes.length > 0 && (
+                                <span className="inline-flex items-center text-xs bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded whitespace-nowrap">
+                                  {submission.likes.length}❤️
+                                </span>
+                              )}
+                              {submission.comments && submission.comments.length > 0 && (
+                                <span className="inline-flex items-center text-xs bg-green-100 text-green-800 px-1.5 py-0.5 rounded whitespace-nowrap">
+                                  {submission.comments.length}💬
+                                </span>
+                              )}
+                              {(!submission.likes || submission.likes.length === 0) && (!submission.comments || submission.comments.length === 0) && (
+                                <span className="text-xs text-gray-400">-</span>
+                              )}
+                            </div>
+                          </td>
                           <td className="p-3 text-muted-foreground">
                             {new Date(submission.created_at).toLocaleDateString()}
                           </td>
@@ -624,38 +683,6 @@ export default function ResultsDashboard() {
                             {submission.helpfulness ? `${submission.helpfulness}/10` : 'N/A'}
                           </td>
                           <td className="p-3 text-sm">{submission.verify_conf}</td>
-                          <td className="p-3 text-sm">
-                            <div className="flex items-center gap-2">
-                              {submission.likes && submission.likes.length > 0 && (
-                                <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
-                                  {submission.likes.length} ❤️
-                                </span>
-                              )}
-                              {submission.comments && submission.comments.length > 0 && (
-                                <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">
-                                  {submission.comments.length} 💬
-                                </span>
-                              )}
-                              {(!submission.likes || submission.likes.length === 0) && (!submission.comments || submission.comments.length === 0) && (
-                                <span className="text-xs text-gray-400">-</span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="p-3">
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              onClick={() => {
-                                const index = rawData.submissions.indexOf(submission)
-                                setSelectedSubmissionIndex(index)
-                                setSelectedSubmission(submission)
-                                setDialogOpen(true)
-                              }}
-                            >
-                              <Eye className="h-3 w-3 mr-1" />
-                              View
-                            </Button>
-                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -682,34 +709,33 @@ export default function ResultsDashboard() {
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent key={selectedSubmission?.id || 'no-submission'} className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Submission Details</DialogTitle>
-            <div className="flex items-center justify-between mt-4">
-              <div className="flex items-center gap-4">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => navigateToSubmission('prev')}
-                  disabled={selectedSubmissionIndex <= 0}
-                  className="px-3"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                  <span className="ml-1">Previous</span>
-                </Button>
-                
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => navigateToSubmission('next')}
-                  disabled={!rawData?.submissions || selectedSubmissionIndex >= rawData.submissions.length - 1}
-                  className="px-3"
-                >
-                  <span className="mr-1">Next</span>
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-              <div className="text-sm text-muted-foreground font-medium">
-                {selectedSubmissionIndex + 1} of {rawData?.submissions.length || 0}
-              </div>
+            <div className="flex items-center justify-between">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigateToSubmission('prev')}
+                disabled={selectedSubmissionIndex <= 0}
+                className="px-2"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                <span className="ml-1">Previous</span>
+              </Button>
+              
+              <DialogTitle className="text-center">Submission Details</DialogTitle>
+              
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigateToSubmission('next')}
+                disabled={!rawData?.submissions || selectedSubmissionIndex >= rawData.submissions.length - 1}
+                className="px-2"
+              >
+                <span className="mr-1">Next</span>
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="text-center text-sm text-muted-foreground font-medium mt-2">
+              {selectedSubmissionIndex + 1} of {rawData?.submissions.length || 0}
             </div>
           </DialogHeader>
           
@@ -842,7 +868,7 @@ export default function ResultsDashboard() {
                 
                 {/* Existing Comments */}
                 {selectedSubmission.comments && selectedSubmission.comments.length > 0 && (
-                  <div className="space-y-3 mb-4 max-h-32 overflow-y-auto">
+                  <div className="space-y-3 mb-4 max-h-48 overflow-y-auto">
                     {selectedSubmission.comments.map((comment) => (
                       <div key={comment.id} className="bg-gray-50 rounded-lg p-3">
                         <div className="flex justify-between items-start mb-1">
