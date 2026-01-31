@@ -49,7 +49,6 @@ export default function VoteChart() {
   const [axisVoteCounts, setAxisVoteCounts] = useState({ x: 0, y: 0 })
   const [currentPhase, setCurrentPhase] = useState<'x_phase' | 'y_phase' | 'mixed_phase'>('x_phase')
   const [showImages, setShowImages] = useState(true)
-  const [celebrateVote, setCelebrateVote] = useState(false)
   const [pairSelector, setPairSelector] = useState<SmartPairSelector | null>(null)
   const [showConfetti, setShowConfetti] = useState(false)
 
@@ -216,10 +215,6 @@ export default function VoteChart() {
         })
       })
 
-      // Simple vote feedback
-      setCelebrateVote(true)
-      setTimeout(() => setCelebrateVote(false), 400)
-      
       const newCount = voteCount + 1
       setVoteCount(newCount)
       sessionStorage.setItem(`votes_${id}`, newCount.toString())
