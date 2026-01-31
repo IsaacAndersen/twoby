@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react'
 import { useParams, useSearchParams, Link } from 'react-router-dom'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { Home, Share2, Star } from 'lucide-react'
+import { Home, Share2, Star, Plus, Trash2, Pencil, X, Check } from 'lucide-react'
 import { useMetaTags } from '@/hooks/useMetaTags'
 import { resolveCollisions } from '@/utils/collision'
 import Avatar from './Avatar'
@@ -48,8 +49,64 @@ export default function ViewChart() {
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false)
   const [adminFeedback, setAdminFeedback] = useState<any[]>([])
   const [showAdminFeedback, setShowAdminFeedback] = useState(false)
+  const [showEditPanel, setShowEditPanel] = useState(false)
+  const [newItemLabel, setNewItemLabel] = useState('')
+  const [editingItemId, setEditingItemId] = useState<string | null>(null)
+  const [editingLabel, setEditingLabel] = useState('')
 
   const API_BASE = import.meta.env.VITE_API_URL || 'https://twobyapi.ike.rs'
+
+  // Edit functions (admin only)
+  async function addItem() {
+    if (!id || !adminKey || !newItemLabel.trim()) return
+
+    try {
+      const response = await fetch(`${API_BASE}/api/charts/${id}/items?k=${adminKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: [{ label: newItemLabel.trim() }] })
+      })
+      if (response.ok) {
+        setNewItemLabel('')
+        loadChart() // Refresh to get new item
+      }
+    } catch (error) {
+      console.error('Failed to add item:', error)
+    }
+  }
+
+  async function deleteItem(itemId: string) {
+    if (!id || !adminKey) return
+    if (!confirm('Delete this item? This cannot be undone.')) return
+
+    try {
+      const response = await fetch(`${API_BASE}/api/charts/${id}/items/${itemId}?k=${adminKey}`, {
+        method: 'DELETE'
+      })
+      if (response.ok) {
+        loadChart() // Refresh
+      }
+    } catch (error) {
+      console.error('Failed to delete item:', error)
+    }
+  }
+
+  async function updateItem(itemId: string, newLabel: string) {
+    if (!id || !adminKey || !newLabel.trim()) return
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/charts/${id}/items/${itemId}?k=${adminKey}&label=${encodeURIComponent(newLabel.trim())}`,
+        { method: 'PUT' }
+      )
+      if (response.ok) {
+        setEditingItemId(null)
+        loadChart() // Refresh
+      }
+    } catch (error) {
+      console.error('Failed to update item:', error)
+    }
+  }
 
   async function submitFeedback() {
     if (!id || !toolHelpfulness) return
@@ -382,6 +439,18 @@ export default function ViewChart() {
     )
   }
 
+  // Seeded random for consistent positioning across page loads
+  function seededRandom(seed: string): number {
+    let hash = 0
+    for (let i = 0; i < seed.length; i++) {
+      const char = seed.charCodeAt(i)
+      hash = ((hash << 5) - hash) + char
+      hash = hash & hash
+    }
+    const x = Math.sin(hash) * 10000
+    return x - Math.floor(x)
+  }
+
   function renderTwoAxis() {
     if (!chart) return null
 
@@ -391,11 +460,29 @@ export default function ViewChart() {
 
     // Prepare items with positions
     const itemsWithPositions = chart.items.map(item => {
-      const x = item.x_mu !== null ? item.x_mu : ((item.r_x || 1000) - 1000) / 5
-      const y = item.y_mu !== null ? item.y_mu : ((item.r_y || 1000) - 1000) / 5
+      // Check if item has meaningful vote data
+      const hasXData = item.x_mu !== null || (item.r_x !== undefined && Math.abs(item.r_x - 1000) > 5)
+      const hasYData = item.y_mu !== null || (item.r_y !== undefined && Math.abs(item.r_y - 1000) > 5)
+
+      let x: number, y: number
+
+      if (hasXData) {
+        x = item.x_mu !== null ? item.x_mu! : ((item.r_x || 1000) - 1000) / 5
+      } else {
+        // No vote data - use seeded random spread across the chart
+        x = (seededRandom(item.id + '_x') - 0.5) * 140 // Range: -70 to +70
+      }
+
+      if (hasYData) {
+        y = item.y_mu !== null ? item.y_mu! : ((item.r_y || 1000) - 1000) / 5
+      } else {
+        // No vote data - use seeded random spread
+        y = (seededRandom(item.id + '_y') - 0.5) * 140 // Range: -70 to +70
+      }
+
       const xPos = ((x || 0) + 100) / 200 * 100
       const yPos = 100 - ((y || 0) + 100) / 200 * 100
-      return { ...item, xPos, yPos }
+      return { ...item, xPos, yPos, hasData: hasXData || hasYData }
     })
 
     // Collision resolution - use larger label dimensions for better separation
@@ -441,12 +528,14 @@ export default function ViewChart() {
             return (
               <div
                 key={item.id}
-                className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-pointer transition-transform hover:scale-110 hover:z-10"
+                className={`absolute transform -translate-x-1/2 -translate-y-1/2 cursor-pointer transition-all hover:scale-110 hover:z-10 ${
+                  !item.hasData ? 'opacity-60' : ''
+                }`}
                 style={{
                   left: `${Math.max(5, Math.min(95, xPos))}%`,
                   top: `${Math.max(5, Math.min(95, yPos))}%`,
                 }}
-                title={item.label}
+                title={item.hasData ? item.label : `${item.label} (needs votes)`}
               >
                 {item.image_url && showImages ? (
                   <img
@@ -455,7 +544,9 @@ export default function ViewChart() {
                     className="w-12 h-12 object-contain"
                   />
                 ) : (
-                  <span className="text-sm font-semibold text-gray-900 bg-white/80 px-2 py-1 rounded whitespace-nowrap">
+                  <span className={`text-sm font-semibold px-2 py-1 rounded whitespace-nowrap ${
+                    item.hasData ? 'text-gray-900 bg-white/80' : 'text-gray-600 bg-gray-100/80 border border-dashed border-gray-300'
+                  }`}>
                     {item.label}
                   </span>
                 )}
@@ -463,6 +554,13 @@ export default function ViewChart() {
             )
           })}
         </div>
+
+        {/* Message if most items need votes */}
+        {itemsWithPositions.filter(i => !i.hasData).length > itemsWithPositions.length / 2 && (
+          <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-xs text-gray-500 whitespace-nowrap">
+            Positions are preliminary — vote to see where items really land
+          </div>
+        )}
       </div>
     )
   }
@@ -682,15 +780,23 @@ export default function ViewChart() {
             <div className="mt-8 border-t border-gray-200 pt-8">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-semibold text-gray-900">Admin Panel</h3>
-                <div className="flex gap-2">
-                  <Button 
+                <div className="flex gap-2 flex-wrap">
+                  <Button
+                    onClick={() => setShowEditPanel(!showEditPanel)}
+                    variant={showEditPanel ? "default" : "outline"}
+                    size="sm"
+                  >
+                    <Pencil className="w-4 h-4 mr-1" />
+                    Edit Items
+                  </Button>
+                  <Button
                     onClick={exportCSV}
                     variant="outline"
                     size="sm"
                   >
                     📊 Export CSV
                   </Button>
-                  <Button 
+                  <Button
                     onClick={() => setShowAdminFeedback(!showAdminFeedback)}
                     variant="outline"
                     size="sm"
@@ -699,6 +805,94 @@ export default function ViewChart() {
                   </Button>
                 </div>
               </div>
+
+              {/* Edit Items Panel */}
+              {showEditPanel && (
+                <Card className="mb-4 border-blue-200 bg-blue-50">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-md">Edit Items</CardTitle>
+                    <CardDescription>Add, remove, or rename items in this chart</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {/* Add new item */}
+                    <div className="flex gap-2">
+                      <Input
+                        value={newItemLabel}
+                        onChange={(e) => setNewItemLabel(e.target.value)}
+                        placeholder="New item name..."
+                        onKeyDown={(e) => e.key === 'Enter' && addItem()}
+                        className="bg-white"
+                      />
+                      <Button onClick={addItem} disabled={!newItemLabel.trim()}>
+                        <Plus className="w-4 h-4 mr-1" />
+                        Add
+                      </Button>
+                    </div>
+
+                    {/* Item list */}
+                    <div className="space-y-2 max-h-64 overflow-y-auto">
+                      {chart?.items.map((item) => (
+                        <div key={item.id} className="flex items-center gap-2 p-2 bg-white rounded border">
+                          {editingItemId === item.id ? (
+                            <>
+                              <Input
+                                value={editingLabel}
+                                onChange={(e) => setEditingLabel(e.target.value)}
+                                className="flex-1 h-8"
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') updateItem(item.id, editingLabel)
+                                  if (e.key === 'Escape') setEditingItemId(null)
+                                }}
+                              />
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => updateItem(item.id, editingLabel)}
+                              >
+                                <Check className="w-4 h-4 text-green-600" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setEditingItemId(null)}
+                              >
+                                <X className="w-4 h-4 text-gray-500" />
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              <span className="flex-1 text-sm">{item.label}</span>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => {
+                                  setEditingItemId(item.id)
+                                  setEditingLabel(item.label)
+                                }}
+                              >
+                                <Pencil className="w-3 h-3" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => deleteItem(item.id)}
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    <p className="text-xs text-gray-500">
+                      {chart?.items.length} items • Changes are saved immediately
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
 
               {showAdminFeedback && (
                 <Card className="bg-gray-50">

@@ -274,6 +274,69 @@ def add_items(
     
     return {"ok": True}
 
+
+@app.put("/api/charts/{chart_id}/items/{item_id}")
+def update_item(
+    chart_id: str,
+    item_id: str,
+    k: str = Query(...),
+    label: str = Query(None),
+    image_url: str = Query(None)
+):
+    """Update an item's label or image URL"""
+    if not verify_capability(chart_id, k, admin=True):
+        raise HTTPException(403, "Invalid admin key")
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        # Check item exists and belongs to chart
+        cur.execute("SELECT id FROM items WHERE id=? AND chart_id=?", (item_id, chart_id))
+        if not cur.fetchone():
+            raise HTTPException(404, "Item not found")
+
+        # Build update query dynamically
+        updates = []
+        params = []
+        if label is not None:
+            updates.append("label=?")
+            params.append(label)
+        if image_url is not None:
+            updates.append("image_url=?")
+            params.append(image_url if image_url else None)
+
+        if updates:
+            params.append(item_id)
+            cur.execute(f"UPDATE items SET {', '.join(updates)} WHERE id=?", params)
+            conn.commit()
+
+    return {"ok": True}
+
+
+@app.delete("/api/charts/{chart_id}/items/{item_id}")
+def delete_item(
+    chart_id: str,
+    item_id: str,
+    k: str = Query(...)
+):
+    """Delete an item from a chart"""
+    if not verify_capability(chart_id, k, admin=True):
+        raise HTTPException(403, "Invalid admin key")
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        # Check item exists and belongs to chart
+        cur.execute("SELECT id FROM items WHERE id=? AND chart_id=?", (item_id, chart_id))
+        if not cur.fetchone():
+            raise HTTPException(404, "Item not found")
+
+        # Delete the item (scores will cascade if FK is set up, otherwise delete manually)
+        cur.execute("DELETE FROM scores WHERE item_id=?", (item_id,))
+        cur.execute("DELETE FROM items WHERE id=?", (item_id,))
+        conn.commit()
+
+    return {"ok": True}
+
+
 @app.post("/api/vote/pair")
 def vote_pair(
     payload: PairVoteRequest,

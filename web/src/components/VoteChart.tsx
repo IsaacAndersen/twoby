@@ -57,21 +57,43 @@ export default function VoteChart() {
   function renderItem(item: Item, size: 'small' | 'large' = 'large') {
     const hasImages = chart?.items.some(i => i.image_url)
     const shouldShowImages = hasImages && showImages
-    
-    if (shouldShowImages) {
-      // Always show with avatar/monogram layout when in image mode
+
+    if (shouldShowImages && size === 'large') {
+      // Large voting buttons - vertical layout with bigger image
       return (
-        <div className={`flex items-center gap-3 ${size === 'small' ? 'text-sm' : ''}`}>
-          <Avatar 
+        <div className="flex flex-col items-center gap-2">
+          {item.image_url ? (
+            <img
+              src={item.image_url}
+              alt={item.label}
+              className="w-16 h-16 sm:w-20 sm:h-20 object-contain rounded"
+            />
+          ) : (
+            <Avatar
+              src={undefined}
+              name={item.label}
+              size="lg"
+            />
+          )}
+          <span className="font-medium text-center leading-tight">{item.label}</span>
+        </div>
+      )
+    }
+
+    if (shouldShowImages) {
+      // Small size - horizontal layout
+      return (
+        <div className="flex items-center gap-3 text-sm">
+          <Avatar
             src={item.image_url || undefined}
             name={item.label}
-            size={size === 'small' ? 'sm' : 'md'}
+            size="sm"
           />
           <span className="font-medium">{item.label}</span>
         </div>
       )
     }
-    
+
     return <span className="font-medium">{item.label}</span>
   }
 
