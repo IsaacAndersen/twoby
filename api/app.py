@@ -260,9 +260,10 @@ def add_items(
         cur = conn.cursor()
         for item in payload.items:
             item_id = make_id()
+            image_url = item.get("image_url")
             cur.execute(
-                "INSERT INTO items (id, chart_id, label, status) VALUES (?, ?, ?, ?)",
-                (item_id, chart_id, item["label"], "active")
+                "INSERT INTO items (id, chart_id, label, image_url, status) VALUES (?, ?, ?, ?, ?)",
+                (item_id, chart_id, item["label"], image_url, "active")
             )
             # Much more aggressive random starting positions 
             start_r_x = random.uniform(700, 1300)  # Wide spread from 700-1300 
