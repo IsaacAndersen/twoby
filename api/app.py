@@ -671,12 +671,12 @@ async def upload_image(request: Request):
     raise HTTPException(status_code=501, detail="Image upload not yet implemented")
 
 
-# Image search with caching
+# Image search with caching (using Serper.dev)
 _image_cache: Dict[str, dict] = {}  # Simple in-memory cache
 
 @app.get("/api/images/search")
 async def search_images(q: str = Query(..., min_length=1, max_length=100)):
-    """Search for images using Google Custom Search API with caching"""
+    """Search for images using Serper.dev API with caching"""
     import httpx
 
     # Check cache first
@@ -684,25 +684,23 @@ async def search_images(q: str = Query(..., min_length=1, max_length=100)):
     if cache_key in _image_cache:
         return _image_cache[cache_key]
 
-    google_api_key = os.environ.get("GOOGLE_API_KEY")
-    google_cse_id = os.environ.get("GOOGLE_CSE_ID")
+    serper_api_key = os.environ.get("SERPER_API_KEY")
 
-    if not google_api_key or not google_cse_id:
+    if not serper_api_key:
         # Return empty results if not configured
         return {"results": [], "source": "none"}
 
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get(
-                "https://www.googleapis.com/customsearch/v1",
-                params={
-                    "key": google_api_key,
-                    "cx": google_cse_id,
+            response = await client.post(
+                "https://google.serper.dev/images",
+                headers={
+                    "X-API-KEY": serper_api_key,
+                    "Content-Type": "application/json"
+                },
+                json={
                     "q": q,
-                    "searchType": "image",
-                    "num": 5,
-                    "safe": "active",
-                    "imgSize": "medium"
+                    "num": 5
                 },
                 timeout=10.0
             )
@@ -710,15 +708,15 @@ async def search_images(q: str = Query(..., min_length=1, max_length=100)):
             if response.status_code == 200:
                 data = response.json()
                 results = []
-                for item in data.get("items", []):
+                for item in data.get("images", []):
                     results.append({
-                        "url": item.get("link"),
-                        "thumbnail": item.get("image", {}).get("thumbnailLink"),
+                        "url": item.get("imageUrl"),
+                        "thumbnail": item.get("thumbnailUrl"),
                         "title": item.get("title"),
-                        "source": item.get("displayLink")
+                        "source": item.get("source")
                     })
 
-                result = {"results": results, "source": "google"}
+                result = {"results": results, "source": "serper"}
                 # Cache successful results
                 if results:
                     _image_cache[cache_key] = result
