@@ -33,6 +33,7 @@ app = FastAPI(title="twoby", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://twoby.vercel.app", "https://twoby.ike.rs", "http://localhost:5173", "http://localhost:5174"],
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
