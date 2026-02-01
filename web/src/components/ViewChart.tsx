@@ -504,17 +504,17 @@ export default function ViewChart() {
         <div className="absolute top-1/2 left-8 right-8 h-0.5 bg-black -translate-y-1/2" />
         <div className="absolute top-1/2 right-6 -translate-y-1/2 w-0 h-0 border-t-[6px] border-b-[6px] border-l-[10px] border-transparent border-l-black" />
 
-        {/* Axis labels - outside the chart area */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 text-sm font-medium text-gray-800 text-center px-2">
+        {/* Axis labels - positioned outside the arrows */}
+        <div className="absolute -top-1 left-1/2 -translate-x-1/2 text-sm font-medium text-gray-800 text-center whitespace-nowrap">
           {yLabels[1]}
         </div>
-        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 text-sm font-medium text-gray-800 text-center px-2">
+        <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 text-sm font-medium text-gray-800 text-center whitespace-nowrap">
           {yLabels[0]}
         </div>
-        <div className="absolute left-0 top-1/2 -translate-y-1/2 text-sm font-medium text-gray-800 text-center px-1">
+        <div className="absolute left-1 top-1/2 translate-y-2 text-sm font-medium text-gray-800 whitespace-nowrap">
           {xLabels[0]}
         </div>
-        <div className="absolute right-0 top-1/2 -translate-y-1/2 text-sm font-medium text-gray-800 text-center px-1">
+        <div className="absolute right-1 top-1/2 translate-y-2 text-sm font-medium text-gray-800 whitespace-nowrap">
           {xLabels[1]}
         </div>
 
@@ -528,14 +528,13 @@ export default function ViewChart() {
             return (
               <div
                 key={item.id}
-                className={`absolute transform -translate-x-1/2 -translate-y-1/2 cursor-pointer transition-all hover:scale-110 hover:z-10 ${
+                className={`group absolute transform -translate-x-1/2 -translate-y-1/2 cursor-pointer transition-all hover:scale-110 hover:z-20 ${
                   !item.hasData ? 'opacity-60' : ''
                 }`}
                 style={{
                   left: `${Math.max(5, Math.min(95, xPos))}%`,
                   top: `${Math.max(5, Math.min(95, yPos))}%`,
                 }}
-                title={item.hasData ? item.label : `${item.label} (needs votes)`}
               >
                 {item.image_url && showImages ? (
                   <img
@@ -550,6 +549,14 @@ export default function ViewChart() {
                     {item.label}
                   </span>
                 )}
+                {/* Tooltip on hover */}
+                <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-30">
+                  <div className="bg-gray-900 text-white text-xs px-2 py-1 rounded shadow-lg whitespace-nowrap">
+                    {item.label}
+                    {!item.hasData && <span className="text-gray-400 ml-1">(needs votes)</span>}
+                  </div>
+                  <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900" />
+                </div>
               </div>
             )
           })}

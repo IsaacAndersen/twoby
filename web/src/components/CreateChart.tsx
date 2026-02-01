@@ -262,6 +262,7 @@ export default function CreateChart() {
                     if (errors.items) setErrors(prev => ({ ...prev, items: undefined }))
                   }}
                   placeholder="Type an item and press Enter..."
+                  contextQuery={title}
                 />
                 {errors.items && (
                   <p className="text-sm text-red-600">{errors.items}</p>

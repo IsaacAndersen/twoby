@@ -6,6 +6,8 @@ interface Item {
   text: string
   image_url?: string
   imageLoading?: boolean
+  imageIndex?: number  // Current index in the image options
+  imageOptions?: string[]  // All available image URLs for cycling
 }
 
 interface ItemData {
@@ -18,6 +20,7 @@ interface RichItemsEditorProps {
   onChange: (value: ItemData[]) => void
   placeholder?: string
   enableImages?: boolean
+  contextQuery?: string  // Optional context to prepend to image searches (e.g., chart title)
 }
 
 const API_BASE = import.meta.env.VITE_API_URL || 'https://twoby-production.up.railway.app'
@@ -26,11 +29,12 @@ export default function RichItemsEditor({
   value,
   onChange,
   placeholder = "Add an item...",
-  enableImages = true
+  enableImages = true,
+  contextQuery = ""
 }: RichItemsEditorProps) {
   const [items, setItems] = useState<Item[]>([])
   const [newItemText, setNewItemText] = useState('')
-  const imageCache = useRef<Record<string, string>>({})
+  const imageCache = useRef<Record<string, string[]>>({})  // Cache stores arrays of image URLs
 
   // Initialize items from value prop only once on mount
   useEffect(() => {
@@ -57,12 +61,24 @@ export default function RichItemsEditor({
   const fetchImageForItem = useCallback(async (itemId: string, query: string) => {
     if (!enableImages || !query.trim()) return
 
-    // Check cache first
-    const cacheKey = query.toLowerCase().trim()
-    if (imageCache.current[cacheKey]) {
+    // Build search query with context (e.g., "Better Call Saul TV Shows" instead of just "Better Call Saul")
+    const searchQuery = contextQuery.trim()
+      ? `${query.trim()} ${contextQuery.trim()}`
+      : query.trim()
+
+    // Check cache first (use the full search query as cache key)
+    const cacheKey = searchQuery.toLowerCase()
+    if (imageCache.current[cacheKey] && imageCache.current[cacheKey].length > 0) {
+      const cachedImages = imageCache.current[cacheKey]
       setItems(prev => {
         const updated = prev.map(item =>
-          item.id === itemId ? { ...item, image_url: imageCache.current[cacheKey], imageLoading: false } : item
+          item.id === itemId ? {
+            ...item,
+            image_url: cachedImages[0],
+            imageOptions: cachedImages,
+            imageIndex: 0,
+            imageLoading: false
+          } : item
         )
         updateParent(updated)
         return updated
@@ -76,21 +92,33 @@ export default function RichItemsEditor({
     ))
 
     try {
-      const response = await fetch(`${API_BASE}/api/images/search?q=${encodeURIComponent(query)}`)
+      const response = await fetch(`${API_BASE}/api/images/search?q=${encodeURIComponent(searchQuery)}`)
       if (response.ok) {
         const data = await response.json()
         if (data.results && data.results.length > 0) {
-          const imageUrl = data.results[0].thumbnail || data.results[0].url
-          imageCache.current[cacheKey] = imageUrl
+          // Store all image URLs (prefer thumbnails for faster loading)
+          const imageUrls = data.results
+            .map((r: any) => r.thumbnail || r.url)
+            .filter((url: string) => url)
 
-          setItems(prev => {
-            const updated = prev.map(item =>
-              item.id === itemId ? { ...item, image_url: imageUrl, imageLoading: false } : item
-            )
-            updateParent(updated)
-            return updated
-          })
-          return
+          if (imageUrls.length > 0) {
+            imageCache.current[cacheKey] = imageUrls
+
+            setItems(prev => {
+              const updated = prev.map(item =>
+                item.id === itemId ? {
+                  ...item,
+                  image_url: imageUrls[0],
+                  imageOptions: imageUrls,
+                  imageIndex: 0,
+                  imageLoading: false
+                } : item
+              )
+              updateParent(updated)
+              return updated
+            })
+            return
+          }
         }
       }
     } catch (error) {
@@ -101,7 +129,7 @@ export default function RichItemsEditor({
     setItems(prev => prev.map(item =>
       item.id === itemId ? { ...item, imageLoading: false } : item
     ))
-  }, [enableImages, updateParent])
+  }, [enableImages, updateParent, contextQuery])
 
   // Add a new item
   const addItem = useCallback(() => {
@@ -139,10 +167,26 @@ export default function RichItemsEditor({
     updateParent(updatedItems)
   }, [items, updateParent])
 
+  // Cycle to next image option
+  const cycleImage = useCallback((id: string) => {
+    const item = items.find(i => i.id === id)
+    if (!item?.imageOptions || item.imageOptions.length <= 1) return
+
+    const currentIndex = item.imageIndex || 0
+    const nextIndex = (currentIndex + 1) % item.imageOptions.length
+    const nextUrl = item.imageOptions[nextIndex]
+
+    const updatedItems = items.map(i =>
+      i.id === id ? { ...i, image_url: nextUrl, imageIndex: nextIndex } : i
+    )
+    setItems(updatedItems)
+    updateParent(updatedItems)
+  }, [items, updateParent])
+
   // Clear image for an item
   const clearImage = useCallback((id: string) => {
     const updatedItems = items.map(item =>
-      item.id === id ? { ...item, image_url: undefined } : item
+      item.id === id ? { ...item, image_url: undefined, imageOptions: undefined, imageIndex: undefined } : item
     )
     setItems(updatedItems)
     updateParent(updatedItems)
@@ -193,17 +237,40 @@ export default function RichItemsEditor({
             >
               {/* Image thumbnail */}
               {enableImages && (
-                <div className="w-8 h-8 flex-shrink-0 rounded overflow-hidden bg-gray-200 flex items-center justify-center">
+                <div className="relative w-8 h-8 flex-shrink-0 rounded overflow-hidden bg-gray-200 flex items-center justify-center group/img">
                   {item.imageLoading ? (
                     <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />
                   ) : item.image_url ? (
-                    <img
-                      src={item.image_url}
-                      alt=""
-                      className="w-full h-full object-cover cursor-pointer"
-                      onClick={() => clearImage(item.id)}
-                      title="Click to remove image"
-                    />
+                    <>
+                      <img
+                        src={item.image_url}
+                        alt=""
+                        className="w-full h-full object-cover cursor-pointer hover:opacity-80 transition-opacity"
+                        onClick={() => cycleImage(item.id)}
+                        title={item.imageOptions && item.imageOptions.length > 1
+                          ? `Click to cycle (${(item.imageIndex || 0) + 1}/${item.imageOptions.length})`
+                          : "Click to cycle images"
+                        }
+                      />
+                      {/* Image count indicator */}
+                      {item.imageOptions && item.imageOptions.length > 1 && (
+                        <div className="absolute bottom-0 right-0 bg-black/70 text-white text-[8px] px-1 rounded-tl">
+                          {(item.imageIndex || 0) + 1}/{item.imageOptions.length}
+                        </div>
+                      )}
+                      {/* Clear button on hover */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          clearImage(item.id)
+                        }}
+                        className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center"
+                        title="Remove image"
+                      >
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    </>
                   ) : (
                     <button
                       type="button"
