@@ -31,6 +31,10 @@ CREATE TABLE IF NOT EXISTS charts (
     voting_period_days INTEGER,
     voting_ends_at TEXT,
     visibility   TEXT NOT NULL DEFAULT 'unlisted',
+    is_hot       INTEGER NOT NULL DEFAULT 0,
+    is_featured  INTEGER NOT NULL DEFAULT 0,
+    is_hidden    INTEGER NOT NULL DEFAULT 0,
+    is_voting_paused INTEGER NOT NULL DEFAULT 0,
     admin_key_hash TEXT NOT NULL,
     share_key_hash TEXT NOT NULL,
     created_at   TEXT NOT NULL,
@@ -124,6 +128,16 @@ CREATE TABLE IF NOT EXISTS short_urls (
     created_at TEXT,
     click_count INTEGER DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS ai_suggestion_cache (
+    cache_key TEXT PRIMARY KEY,
+    title_norm TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    suggestion_type TEXT NOT NULL,
+    response_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+);
 """
 
 INDEXES_SQL = """
@@ -134,6 +148,7 @@ CREATE INDEX IF NOT EXISTS idx_scores_chart ON scores(chart_id);
 CREATE INDEX IF NOT EXISTS idx_feedback_chart ON feedback(chart_id);
 CREATE INDEX IF NOT EXISTS idx_short_urls_short_code ON short_urls(short_code);
 CREATE INDEX IF NOT EXISTS idx_short_urls_chart_id ON short_urls(chart_id);
+CREATE INDEX IF NOT EXISTS idx_ai_suggestion_cache_expires_at ON ai_suggestion_cache(expires_at);
 """
 
 
@@ -248,6 +263,10 @@ def _run_sqlite_migrations(conn):
         ("charts", "task_image_url", "TEXT"),
         ("charts", "tool_name", "TEXT DEFAULT 'OpenEvidence'"),
         ("charts", "upload_images", "TEXT"),
+        ("charts", "is_hot", "INTEGER NOT NULL DEFAULT 0"),
+        ("charts", "is_featured", "INTEGER NOT NULL DEFAULT 0"),
+        ("charts", "is_hidden", "INTEGER NOT NULL DEFAULT 0"),
+        ("charts", "is_voting_paused", "INTEGER NOT NULL DEFAULT 0"),
         ("items", "image_url", "TEXT"),
         ("items", "color", "TEXT"),
         ("items", "bg_color", "TEXT"),
@@ -292,7 +311,42 @@ def _init_postgres():
             except Exception:
                 conn.rollback()
 
+    _run_postgres_migrations(conn)
     conn.close()
+
+def _run_postgres_migrations(conn):
+    """Add columns that may not exist in older PostgreSQL databases"""
+    migrations = [
+        ("charts", "description", "TEXT"),
+        ("charts", "creator_take", "TEXT"),
+        ("charts", "voting_period_days", "INTEGER"),
+        ("charts", "voting_ends_at", "TEXT"),
+        ("charts", "task_description", "TEXT"),
+        ("charts", "task_image_url", "TEXT"),
+        ("charts", "tool_name", "TEXT DEFAULT 'OpenEvidence'"),
+        ("charts", "upload_images", "TEXT"),
+        ("charts", "is_hot", "INTEGER NOT NULL DEFAULT 0"),
+        ("charts", "is_featured", "INTEGER NOT NULL DEFAULT 0"),
+        ("charts", "is_hidden", "INTEGER NOT NULL DEFAULT 0"),
+        ("charts", "is_voting_paused", "INTEGER NOT NULL DEFAULT 0"),
+        ("items", "image_url", "TEXT"),
+        ("items", "color", "TEXT"),
+        ("items", "bg_color", "TEXT"),
+        ("items", "description", "TEXT"),
+        ("items", "sort_order", "INTEGER DEFAULT 0"),
+        ("items", "created_at", "TEXT"),
+        ("items", "image_src", "TEXT"),
+        ("items", "image_attribution", "TEXT"),
+        ("items", "dominant_color", "TEXT"),
+    ]
+
+    cur = conn.cursor()
+    for table, column, col_type in migrations:
+        try:
+            cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+            conn.commit()
+        except Exception:
+            conn.rollback()
 
 def dict_from_row(row) -> Dict[str, Any]:
     """Convert database row to dictionary"""

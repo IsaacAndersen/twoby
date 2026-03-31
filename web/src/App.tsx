@@ -4,19 +4,24 @@ import CreateChart from '@/components/CreateChart'
 import VoteChart from '@/components/VoteChart'
 import ViewChart from '@/components/ViewChart'
 import AdminPage from '@/components/AdminPage'
+import AppShell from '@/components/layout/AppShell'
+import AboutPage from '@/components/pages/AboutPage'
+import NotFoundPage from '@/components/pages/NotFoundPage'
 
 function App() {
   return (
     <Router>
-      <div className="min-h-screen bg-background">
-        <Routes>
+      <Routes>
+        <Route element={<AppShell />}>
           <Route path="/" element={<HomePage />} />
           <Route path="/create" element={<CreateChart />} />
           <Route path="/v/:id" element={<VoteChart />} />
           <Route path="/c/:id" element={<ViewChart />} />
           <Route path="/admin" element={<AdminPage />} />
-        </Routes>
-      </div>
+          <Route path="/about" element={<AboutPage />} />
+          <Route path="*" element={<NotFoundPage />} />
+        </Route>
+      </Routes>
     </Router>
   )
 }

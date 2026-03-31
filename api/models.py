@@ -65,6 +65,7 @@ class PublicChartResponse(BaseModel):
     items: List[Item]
     voting_active: bool = True
     ends_at: Optional[str] = None
+    is_voting_paused: bool = False
 
 class ChartSummary(BaseModel):
     id: str
@@ -73,6 +74,31 @@ class ChartSummary(BaseModel):
     item_count: int
     vote_count: int
     created_at: str
+    is_hot: bool = False
+    is_featured: bool = False
+    is_hidden: bool = False
+
+class ChartFeedItem(BaseModel):
+    id: str
+    title: str
+    mode: ChartMode
+    item_count: int
+    vote_count: int
+    created_at: str
+    is_hot: bool = False
+    is_featured: bool = False
+    x_label: Optional[str] = None
+    y_label: Optional[str] = None
+    preview_items: Optional[List[Dict]] = None
+
+class AdminChartUpdateRequest(BaseModel):
+    is_hot: Optional[bool] = None
+    is_featured: Optional[bool] = None
+    is_hidden: Optional[bool] = None
+    is_voting_paused: Optional[bool] = None
+
+class OwnerChartSettingsRequest(BaseModel):
+    is_voting_paused: Optional[bool] = None
 
 class AISuggestionRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)

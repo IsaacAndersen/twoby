@@ -1,17 +1,14 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { ArrowLeft, Grid2x2, Shuffle } from 'lucide-react'
+import { ArrowLeft, Shuffle } from 'lucide-react'
 import RichItemsEditor from './RichItemsEditor'
 import { createShortUrl } from '@/utils/urlShortening'
-
-interface ItemData {
-  label: string
-  image_url?: string
-}
+import { API_BASE } from '@/config'
+import type { ItemData } from '@/types'
 
 // Title suggestions for inspiration
 const TITLE_SUGGESTIONS = [
@@ -31,6 +28,33 @@ const TITLE_SUGGESTIONS = [
   'Comfort Foods',
 ]
 
+function isAbortError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'name' in error && (error as { name: string }).name === 'AbortError'
+}
+
+function getLocalFallbackSuggestions(title: string): string[] {
+  const t = title.toLowerCase()
+  if (t.includes('fortnite') && (t.includes('location') || t.includes('poi'))) {
+    return ['Tilted Towers', 'Retail Row', 'Pleasant Park', 'Greasy Grove', 'Loot Lake', 'Mega City']
+  }
+  if (t.includes('movie') || t.includes('film')) {
+    return ['Inception', 'The Dark Knight', 'Parasite', 'The Matrix', 'Pulp Fiction', 'Interstellar']
+  }
+  if (t.includes('tv') || t.includes('show')) {
+    return ['Breaking Bad', 'Succession', 'The Office', 'The Wire', 'Severance', 'The Bear']
+  }
+  if (t.includes('game')) {
+    return ['Minecraft', 'Fortnite', 'Elden Ring', 'Zelda', 'Valorant', 'Stardew Valley']
+  }
+  if (t.includes('park')) {
+    return ['Yosemite', 'Yellowstone', 'Zion', 'Acadia', 'Grand Canyon', 'Glacier']
+  }
+  if (t.includes('food') || t.includes('pizza') || t.includes('coffee')) {
+    return ['Pizza', 'Tacos', 'Burgers', 'Sushi', 'Pasta', 'BBQ']
+  }
+  return []
+}
+
 export default function CreateChart() {
   const navigate = useNavigate()
   const [title, setTitle] = useState('')
@@ -41,13 +65,16 @@ export default function CreateChart() {
   const [yLowLabel, setYLowLabel] = useState('')
   const [yHighLabel, setYHighLabel] = useState('')
   const [items, setItems] = useState<ItemData[]>([])
+  const [itemSuggestions, setItemSuggestions] = useState<string[]>([])
+  const [isSuggesting, setIsSuggesting] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [showLinks, setShowLinks] = useState(false)
   const [chartLinks, setChartLinks] = useState({ shareUrl: '', adminUrl: '' })
   const [errors, setErrors] = useState<{title?: string, items?: string, general?: string}>({})
   const isSubmittingRef = useRef(false)
+  const lastGoodSuggestionsRef = useRef<string[]>([])
 
-  const API_BASE = import.meta.env.VITE_API_URL || 'https://twobyapi.ike.rs'
+  const normalizedTitle = useMemo(() => title.trim(), [title])
 
   // Initialize with a random suggestion
   useEffect(() => {
@@ -62,6 +89,99 @@ export default function CreateChart() {
     } while (newSuggestion === currentSuggestion && TITLE_SUGGESTIONS.length > 1)
     setCurrentSuggestion(newSuggestion)
   }
+
+  function addSuggestedItems(labels: string[]) {
+    setItems((prev) => {
+      const existing = new Set(prev.map((i) => i.label.trim().toLowerCase()).filter(Boolean))
+      const next = [...prev]
+      for (const label of labels) {
+        const clean = label.trim()
+        if (!clean) continue
+        const key = clean.toLowerCase()
+        if (existing.has(key)) continue
+        next.push({ label: clean })
+        existing.add(key)
+      }
+      return next
+    })
+  }
+
+  useEffect(() => {
+    if (!normalizedTitle || normalizedTitle.length < 2) {
+      setItemSuggestions([])
+      return
+    }
+
+    const fallback = getLocalFallbackSuggestions(normalizedTitle)
+    if (fallback.length > 0) {
+      setItemSuggestions(fallback)
+    } else if (lastGoodSuggestionsRef.current.length > 0) {
+      setItemSuggestions(lastGoodSuggestionsRef.current)
+    }
+
+    const controller = new AbortController()
+    const handle = setTimeout(async () => {
+      setIsSuggesting(true)
+      try {
+        const itemsRes = await fetch(`${API_BASE}/api/ai/suggest`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: normalizedTitle, mode: 'two_axis', type: 'items' }),
+          signal: controller.signal,
+        })
+
+        if (itemsRes.ok) {
+          const data: unknown = await itemsRes.json()
+          const rawItems = (data as { items?: unknown })?.items
+          const nextItems: string[] = Array.isArray(rawItems)
+            ? rawItems
+                .map((s) => (typeof s === 'string' ? s.trim() : ''))
+                .filter(Boolean)
+            : []
+
+          const seen = new Set<string>()
+          const deduped: string[] = []
+          for (const item of nextItems) {
+            const key = item.toLowerCase()
+            if (seen.has(key)) continue
+            seen.add(key)
+            deduped.push(item)
+          }
+          if (deduped.length > 0) {
+            const limited = deduped.slice(0, 18)
+            setItemSuggestions(limited)
+            lastGoodSuggestionsRef.current = limited
+          } else if (fallback.length > 0) {
+            setItemSuggestions(fallback)
+          } else if (lastGoodSuggestionsRef.current.length > 0) {
+            setItemSuggestions(lastGoodSuggestionsRef.current)
+          }
+        } else {
+          if (fallback.length > 0) {
+            setItemSuggestions(fallback)
+          } else if (lastGoodSuggestionsRef.current.length > 0) {
+            setItemSuggestions(lastGoodSuggestionsRef.current)
+          }
+        }
+      } catch (error: unknown) {
+        if (!isAbortError(error)) {
+          console.warn('Suggestion fetch failed:', error)
+        }
+        if (fallback.length > 0) {
+          setItemSuggestions(fallback)
+        } else if (lastGoodSuggestionsRef.current.length > 0) {
+          setItemSuggestions(lastGoodSuggestionsRef.current)
+        }
+      } finally {
+        setIsSuggesting(false)
+      }
+    }, 300)
+
+    return () => {
+      controller.abort()
+      clearTimeout(handle)
+    }
+  }, [API_BASE, normalizedTitle])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -131,7 +251,7 @@ export default function CreateChart() {
       setShowLinks(true)
       isSubmittingRef.current = false
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error:', error)
       setErrors({ general: 'Failed to create chart. Please try again.' })
     } finally {
@@ -167,13 +287,7 @@ export default function CreateChart() {
 
       <Card>
         <CardHeader className="pb-4">
-          <div className="flex items-center gap-2">
-            <Grid2x2 className="w-5 h-5 text-blue-600" />
-            <CardTitle>Create 2×2 Chart</CardTitle>
-          </div>
-          <CardDescription>
-            Create a chart where people vote on where items belong on two axes
-          </CardDescription>
+          <CardTitle>New chart</CardTitle>
         </CardHeader>
         <CardContent>
           {!showLinks ? (
@@ -216,7 +330,7 @@ export default function CreateChart() {
                 <label className="text-sm font-medium">Axes (optional)</label>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">X-Axis Left</label>
+                    <label className="block text-xs text-slate-500 mb-1">X-Axis Left</label>
                     <Input
                       value={xLowLabel}
                       onChange={(e) => setXLowLabel(e.target.value)}
@@ -224,7 +338,7 @@ export default function CreateChart() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">X-Axis Right</label>
+                    <label className="block text-xs text-slate-500 mb-1">X-Axis Right</label>
                     <Input
                       value={xHighLabel}
                       onChange={(e) => setXHighLabel(e.target.value)}
@@ -232,7 +346,7 @@ export default function CreateChart() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Y-Axis Bottom</label>
+                    <label className="block text-xs text-slate-500 mb-1">Y-Axis Bottom</label>
                     <Input
                       value={yLowLabel}
                       onChange={(e) => setYLowLabel(e.target.value)}
@@ -240,7 +354,7 @@ export default function CreateChart() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Y-Axis Top</label>
+                    <label className="block text-xs text-slate-500 mb-1">Y-Axis Top</label>
                     <Input
                       value={yHighLabel}
                       onChange={(e) => setYHighLabel(e.target.value)}
@@ -264,6 +378,46 @@ export default function CreateChart() {
                   placeholder="Type an item and press Enter..."
                   contextQuery={title}
                 />
+
+                {/* Item suggestions */}
+                {normalizedTitle && (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs font-medium text-slate-600">Suggested items</div>
+                      <div className="flex items-center gap-2">
+                        {itemSuggestions.length > 0 && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => addSuggestedItems(itemSuggestions)}
+                          >
+                            Add all
+                          </Button>
+                        )}
+                        {isSuggesting && <div className="text-xs text-slate-400">Thinking…</div>}
+                      </div>
+                    </div>
+                    {itemSuggestions.length > 0 ? (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {itemSuggestions.map((label) => (
+                          <button
+                            key={label}
+                            type="button"
+                            onClick={() => addSuggestedItems([label])}
+                            className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50"
+                          >
+                            + {label}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="mt-2 text-xs text-slate-500">Type a title to get suggestions</div>
+                    )}
+                  </div>
+                )}
+
                 {errors.items && (
                   <p className="text-sm text-red-600">{errors.items}</p>
                 )}
@@ -271,7 +425,7 @@ export default function CreateChart() {
 
               {/* Description (collapsed by default) */}
               <details className="group">
-                <summary className="text-sm font-medium cursor-pointer text-gray-600 hover:text-gray-900">
+                <summary className="text-sm font-medium cursor-pointer text-slate-600 hover:text-slate-900">
                   + Add description (optional)
                 </summary>
                 <div className="mt-2">
@@ -309,12 +463,11 @@ export default function CreateChart() {
           ) : (
             <div className="space-y-4">
               <div className="text-center py-4">
-                <div className="text-4xl mb-2">🎉</div>
-                <h3 className="font-semibold text-lg">Chart Created!</h3>
+                <h3 className="font-semibold text-lg">Chart created</h3>
               </div>
 
               <div className="space-y-3">
-                <div className="p-3 bg-gray-50 rounded-lg">
+                <div className="p-3 bg-slate-50 rounded-lg">
                   <div className="text-sm font-medium mb-1">Share this link for voting:</div>
                   <div className="flex gap-2">
                     <code className="flex-1 text-xs bg-white p-2 rounded border truncate">

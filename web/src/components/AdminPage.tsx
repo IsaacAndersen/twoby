@@ -1,12 +1,13 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { Home, Trash2, Flame, Star, Users, Clock, Search } from 'lucide-react'
+import { Home, Trash2, Flame, Star, Users, Clock, Search, Eye, EyeOff } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { API_BASE } from '@/config'
 
-interface ChartData {
+interface AdminChart {
   id: string
   title: string
   mode: string
@@ -15,121 +16,117 @@ interface ChartData {
   created_at: string
   is_hot?: boolean
   is_featured?: boolean
+  is_hidden?: boolean
   admin_url?: string
 }
 
+const ADMIN_TOKEN_KEY = 'admin_token'
+
 export default function AdminPage() {
-  const [charts, setCharts] = useState<ChartData[]>([])
+  const [charts, setCharts] = useState<AdminChart[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
-  const [hotCharts, setHotCharts] = useState<Set<string>>(new Set())
-  const [featuredCharts, setFeaturedCharts] = useState<Set<string>>(new Set())
-  const [deletedCharts, setDeletedCharts] = useState<Set<string>>(new Set())
-  const [password, setPassword] = useState('')
+  const [token, setToken] = useState('')
   const [isAuthenticated, setIsAuthenticated] = useState(false)
-
-  const API_BASE = import.meta.env.VITE_API_URL || 'https://twobyapi.ike.rs'
-  
-  // Simple password check (you can enhance this later)
-  const ADMIN_PASSWORD = 'twoby_admin_2024' // Change this to something secure
+  const [authError, setAuthError] = useState<string | null>(null)
+  const [showHidden, setShowHidden] = useState(false)
 
   useEffect(() => {
-    // Check if already authenticated
-    const savedAuth = sessionStorage.getItem('admin_auth')
-    if (savedAuth === 'true') {
-      setIsAuthenticated(true)
-      loadCharts()
+    const savedToken = sessionStorage.getItem(ADMIN_TOKEN_KEY)
+    if (savedToken) {
+      setToken(savedToken)
+      void loadCharts(savedToken)
+    } else {
+      setIsLoading(false)
     }
   }, [])
 
-  useEffect(() => {
-    // Load saved hot/featured charts from localStorage
-    const savedHot = localStorage.getItem('admin_hot_charts')
-    const savedFeatured = localStorage.getItem('admin_featured_charts')
-    if (savedHot) setHotCharts(new Set(JSON.parse(savedHot)))
-    if (savedFeatured) setFeaturedCharts(new Set(JSON.parse(savedFeatured)))
-  }, [])
+  async function loadCharts(authToken: string) {
+    setIsLoading(true)
+    setAuthError(null)
 
-  async function loadCharts() {
     try {
-      const response = await fetch(`${API_BASE}/api/charts/public`)
-      if (response.ok) {
-        const data = await response.json()
-        
-        // Load deleted charts from localStorage
-        const savedDeleted = localStorage.getItem('admin_deleted_charts')
-        const deletedSet = savedDeleted ? new Set<string>(JSON.parse(savedDeleted)) : new Set<string>()
-        setDeletedCharts(deletedSet)
-        
-        // Filter out deleted charts and enhance with admin metadata
-        const filteredData = data
-          .filter((chart: ChartData) => !deletedSet.has(chart.id))
-          .map((chart: ChartData) => ({
-            ...chart,
-            admin_url: `/c/${chart.id}?s=public` // Construct admin URL
-          }))
-        
-        setCharts(filteredData)
+      const response = await fetch(`${API_BASE}/api/admin/charts?limit=500&offset=0&mode=two_axis`, {
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+      })
+
+      if (response.status === 403) {
+        setIsAuthenticated(false)
+        setAuthError('Invalid admin token')
+        sessionStorage.removeItem(ADMIN_TOKEN_KEY)
+        return
       }
+
+      if (!response.ok) {
+        throw new Error(`Failed to load charts (${response.status})`)
+      }
+
+      const data = await response.json()
+      const enriched = (data as AdminChart[]).map((chart) => ({
+        ...chart,
+        admin_url: `/c/${chart.id}?s=public`,
+      }))
+
+      setCharts(enriched)
+      setIsAuthenticated(true)
     } catch (error) {
       console.error('Failed to load charts:', error)
+      setAuthError('Failed to load charts')
+      setIsAuthenticated(false)
     } finally {
       setIsLoading(false)
     }
   }
 
+  async function updateChartFlags(chartId: string, patch: { is_hot?: boolean; is_featured?: boolean; is_hidden?: boolean }) {
+    if (!token) return
+    setAuthError(null)
+
+    // Optimistic update
+    setCharts((prev) =>
+      prev.map((c) => (c.id === chartId ? { ...c, ...patch } : c)),
+    )
+
+    try {
+      const response = await fetch(`${API_BASE}/api/admin/charts/${chartId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(patch),
+      })
+
+      if (response.status === 403) {
+        setIsAuthenticated(false)
+        setAuthError('Invalid admin token')
+        sessionStorage.removeItem(ADMIN_TOKEN_KEY)
+        return
+      }
+
+      if (!response.ok) throw new Error('Failed to update chart')
+    } catch (error) {
+      console.error('Failed to update chart:', error)
+      setAuthError('Failed to update chart')
+      // Re-sync
+      void loadCharts(token)
+    }
+  }
+
   function handleLogin() {
-    if (password === ADMIN_PASSWORD) {
-      setIsAuthenticated(true)
-      sessionStorage.setItem('admin_auth', 'true')
-      loadCharts()
-    } else {
-      alert('Invalid password')
-    }
+    const trimmed = token.trim()
+    if (!trimmed) return
+    sessionStorage.setItem(ADMIN_TOKEN_KEY, trimmed)
+    void loadCharts(trimmed)
   }
 
-  function toggleHot(chartId: string) {
-    const newHotCharts = new Set(hotCharts)
-    if (newHotCharts.has(chartId)) {
-      newHotCharts.delete(chartId)
-    } else {
-      newHotCharts.add(chartId)
-    }
-    setHotCharts(newHotCharts)
-    localStorage.setItem('admin_hot_charts', JSON.stringify(Array.from(newHotCharts)))
-  }
-
-  function toggleFeatured(chartId: string) {
-    const newFeaturedCharts = new Set(featuredCharts)
-    if (newFeaturedCharts.has(chartId)) {
-      newFeaturedCharts.delete(chartId)
-    } else {
-      newFeaturedCharts.add(chartId)
-    }
-    setFeaturedCharts(newFeaturedCharts)
-    localStorage.setItem('admin_featured_charts', JSON.stringify(Array.from(newFeaturedCharts)))
-  }
-
-  function deleteChart(chartId: string) {
-    if (confirm('Are you sure you want to hide this chart? It can be restored later.')) {
-      const newDeletedCharts = new Set(deletedCharts)
-      newDeletedCharts.add(chartId)
-      setDeletedCharts(newDeletedCharts)
-      localStorage.setItem('admin_deleted_charts', JSON.stringify(Array.from(newDeletedCharts)))
-      
-      // Remove from displayed charts
-      setCharts(charts.filter(c => c.id !== chartId))
-    }
-  }
-
-  function restoreChart(chartId: string) {
-    const newDeletedCharts = new Set(deletedCharts)
-    newDeletedCharts.delete(chartId)
-    setDeletedCharts(newDeletedCharts)
-    localStorage.setItem('admin_deleted_charts', JSON.stringify(Array.from(newDeletedCharts)))
-    
-    // Reload charts
-    loadCharts()
+  function logout() {
+    sessionStorage.removeItem(ADMIN_TOKEN_KEY)
+    setToken('')
+    setIsAuthenticated(false)
+    setCharts([])
   }
 
   function formatDate(dateString: string) {
@@ -139,43 +136,63 @@ export default function AdminPage() {
       day: 'numeric',
       year: 'numeric',
       hour: 'numeric',
-      minute: '2-digit'
+      minute: '2-digit',
     })
   }
 
-  const filteredCharts = charts.filter(chart => 
-    chart.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    chart.id.includes(searchQuery)
-  )
+  const visibleCharts = useMemo(() => {
+    return charts.filter((chart) => showHidden || !chart.is_hidden)
+  }, [charts, showHidden])
 
-  // Calculate stats
-  const totalVotes = charts.reduce((sum, chart) => sum + chart.vote_count, 0)
-  const totalCharts = charts.length
-  const hotCount = hotCharts.size
-  const featuredCount = featuredCharts.size
+  const filteredCharts = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim()
+    if (!q) return visibleCharts
+    return visibleCharts.filter((chart) => chart.title.toLowerCase().includes(q) || chart.id.includes(q))
+  }, [visibleCharts, searchQuery])
+
+  const stats = useMemo(() => {
+    const active = charts.filter((c) => !c.is_hidden)
+    return {
+      totalCharts: active.length,
+      totalVotes: active.reduce((sum, c) => sum + c.vote_count, 0),
+      hotCount: active.filter((c) => c.is_hot).length,
+      featuredCount: active.filter((c) => c.is_featured).length,
+      hiddenCount: charts.filter((c) => c.is_hidden).length,
+    }
+  }, [charts])
 
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
           <CardHeader>
-            <CardTitle>Admin Login</CardTitle>
+            <CardTitle>Admin</CardTitle>
           </CardHeader>
           <CardContent>
-            <form onSubmit={(e) => { e.preventDefault(); handleLogin(); }} className="space-y-4">
-              <div>
-                <label className="text-sm font-medium">Password</label>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault()
+                handleLogin()
+              }}
+              className="space-y-4"
+            >
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Admin token</label>
                 <Input
                   type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter admin password"
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                  placeholder="Paste ADMIN_TOKEN"
                   required
                 />
+                {authError && <p className="text-sm text-red-600">{authError}</p>}
               </div>
-              <Button type="submit" className="w-full">
-                Login
+              <Button type="submit" className="w-full" disabled={isLoading}>
+                {isLoading ? 'Checking…' : 'Login'}
               </Button>
+              <div className="text-xs text-gray-500">
+                Token is stored in session only.
+              </div>
             </form>
           </CardContent>
         </Card>
@@ -190,85 +207,115 @@ export default function AdminPage() {
         <div className="mb-8">
           <div className="flex justify-between items-center mb-4">
             <h1 className="text-3xl font-bold">twoby Admin</h1>
-            <Link to="/">
-              <Button variant="outline">
-                <Home className="w-4 h-4 mr-2" />
-                Back to Site
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setShowHidden((v) => !v)}
+                title={showHidden ? 'Hide hidden charts' : 'Show hidden charts'}
+              >
+                {showHidden ? <EyeOff className="w-4 h-4 mr-2" /> : <Eye className="w-4 h-4 mr-2" />}
+                {showHidden ? 'Hide Hidden' : 'Show Hidden'} ({stats.hiddenCount})
               </Button>
-            </Link>
+              <Link to="/">
+                <Button variant="outline">
+                  <Home className="w-4 h-4 mr-2" />
+                  Back
+                </Button>
+              </Link>
+              <Button variant="outline" onClick={logout}>
+                Logout
+              </Button>
+            </div>
           </div>
-          
+
           {/* Stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
             <Card>
               <CardContent className="pt-6">
-                <div className="text-2xl font-bold">{totalCharts}</div>
-                <p className="text-xs text-muted-foreground">Total Charts</p>
+                <div className="text-2xl font-bold">{stats.totalCharts}</div>
+                <p className="text-xs text-muted-foreground">Visible Charts</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="pt-6">
-                <div className="text-2xl font-bold">{totalVotes}</div>
+                <div className="text-2xl font-bold">{stats.totalVotes}</div>
                 <p className="text-xs text-muted-foreground">Total Votes</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="pt-6">
-                <div className="text-2xl font-bold text-orange-600">{hotCount}</div>
-                <p className="text-xs text-muted-foreground">Hot Charts</p>
+                <div className="text-2xl font-bold text-orange-600">{stats.hotCount}</div>
+                <p className="text-xs text-muted-foreground">Hot</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="pt-6">
-                <div className="text-2xl font-bold text-purple-600">{featuredCount}</div>
+                <div className="text-2xl font-bold text-purple-600">{stats.featuredCount}</div>
                 <p className="text-xs text-muted-foreground">Featured</p>
               </CardContent>
             </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-2xl font-bold text-gray-600">{stats.hiddenCount}</div>
+                <p className="text-xs text-muted-foreground">Hidden</p>
+              </CardContent>
+            </Card>
           </div>
-          
+
           {/* Search */}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <Input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by title or ID..."
+              placeholder="Search by title or ID…"
               className="pl-10"
             />
           </div>
+          {authError && <p className="text-sm text-red-600 mt-3">{authError}</p>}
         </div>
 
         {/* Charts Table */}
         <Card>
           <CardHeader>
-            <CardTitle>All Public Charts</CardTitle>
+            <CardTitle>Charts</CardTitle>
           </CardHeader>
           <CardContent>
             {isLoading ? (
-              <div className="text-center py-8">Loading...</div>
+              <div className="text-center py-8">Loading…</div>
             ) : (
               <div className="space-y-2">
-                {filteredCharts.map(chart => (
-                  <div key={chart.id} className="flex items-center justify-between p-3 bg-white rounded-lg border hover:shadow-sm transition-shadow">
+                {filteredCharts.map((chart) => (
+                  <div
+                    key={chart.id}
+                    className={`flex items-center justify-between p-3 rounded-lg border hover:shadow-sm transition-shadow ${
+                      chart.is_hidden ? 'bg-gray-50' : 'bg-white'
+                    }`}
+                  >
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
                         <Link to={chart.admin_url || '#'} className="font-medium hover:text-blue-600">
                           {chart.title}
                         </Link>
-                        {hotCharts.has(chart.id) && (
+                        {chart.is_hot && (
                           <Badge className="bg-orange-100 text-orange-700">
                             <Flame className="w-3 h-3 mr-1" />
                             Hot
                           </Badge>
                         )}
-                        {featuredCharts.has(chart.id) && (
+                        {chart.is_featured && (
                           <Badge className="bg-purple-100 text-purple-700">
                             <Star className="w-3 h-3 mr-1" />
                             Featured
                           </Badge>
                         )}
+                        {chart.is_hidden && (
+                          <Badge variant="outline" className="text-gray-600">
+                            Hidden
+                          </Badge>
+                        )}
                       </div>
-                      <div className="flex items-center gap-4 text-xs text-gray-500">
+                      <div className="flex items-center gap-4 text-xs text-gray-500 flex-wrap">
                         <span>ID: {chart.id}</span>
                         <span className="flex items-center gap-1">
                           <Users className="w-3 h-3" />
@@ -281,56 +328,46 @@ export default function AdminPage() {
                         </span>
                       </div>
                     </div>
-                    
+
                     <div className="flex items-center gap-2">
                       <Button
                         size="sm"
-                        variant={hotCharts.has(chart.id) ? "default" : "outline"}
-                        onClick={() => toggleHot(chart.id)}
-                        className={hotCharts.has(chart.id) ? "bg-orange-500 hover:bg-orange-600" : ""}
+                        variant={chart.is_hot ? 'default' : 'outline'}
+                        onClick={() => updateChartFlags(chart.id, { is_hot: !chart.is_hot })}
+                        className={chart.is_hot ? 'bg-orange-500 hover:bg-orange-600' : ''}
+                        title="Toggle hot"
                       >
                         <Flame className="w-4 h-4" />
                       </Button>
                       <Button
                         size="sm"
-                        variant={featuredCharts.has(chart.id) ? "default" : "outline"}
-                        onClick={() => toggleFeatured(chart.id)}
-                        className={featuredCharts.has(chart.id) ? "bg-purple-500 hover:bg-purple-600" : ""}
+                        variant={chart.is_featured ? 'default' : 'outline'}
+                        onClick={() => updateChartFlags(chart.id, { is_featured: !chart.is_featured })}
+                        className={chart.is_featured ? 'bg-purple-500 hover:bg-purple-600' : ''}
+                        title="Toggle featured"
                       >
                         <Star className="w-4 h-4" />
                       </Button>
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => deleteChart(chart.id)}
+                        onClick={() => {
+                          if (confirm(chart.is_hidden ? 'Restore this chart to the public feed?' : 'Hide this chart from the public feed?')) {
+                            updateChartFlags(chart.id, { is_hidden: !chart.is_hidden })
+                          }
+                        }}
                         className="text-red-600 hover:bg-red-50"
+                        title={chart.is_hidden ? 'Restore chart' : 'Hide chart'}
                       >
                         <Trash2 className="w-4 h-4" />
                       </Button>
                     </div>
                   </div>
                 ))}
-              </div>
-            )}
-            
-            {/* Deleted Charts Section */}
-            {deletedCharts.size > 0 && (
-              <div className="mt-8 pt-8 border-t">
-                <h3 className="font-medium mb-4 text-gray-600">Hidden Charts ({deletedCharts.size})</h3>
-                <div className="space-y-2">
-                  {Array.from(deletedCharts).map(chartId => (
-                    <div key={chartId} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                      <span className="text-sm text-gray-500">Chart ID: {chartId}</span>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => restoreChart(chartId)}
-                      >
-                        Restore
-                      </Button>
-                    </div>
-                  ))}
-                </div>
+
+                {filteredCharts.length === 0 && (
+                  <div className="text-center py-8 text-sm text-gray-500">No charts found.</div>
+                )}
               </div>
             )}
           </CardContent>
@@ -339,3 +376,4 @@ export default function AdminPage() {
     </div>
   )
 }
+

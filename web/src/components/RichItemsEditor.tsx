@@ -1,18 +1,15 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { X, Plus, Image, Loader2 } from 'lucide-react'
+import { API_BASE } from '@/config'
+import type { ItemData } from '@/types'
 
-interface Item {
+interface EditorItem {
   id: string
   text: string
   image_url?: string
   imageLoading?: boolean
-  imageIndex?: number  // Current index in the image options
-  imageOptions?: string[]  // All available image URLs for cycling
-}
-
-interface ItemData {
-  label: string
-  image_url?: string
+  imageIndex?: number
+  imageOptions?: string[]
 }
 
 interface RichItemsEditorProps {
@@ -20,10 +17,8 @@ interface RichItemsEditorProps {
   onChange: (value: ItemData[]) => void
   placeholder?: string
   enableImages?: boolean
-  contextQuery?: string  // Optional context to prepend to image searches (e.g., chart title)
+  contextQuery?: string
 }
-
-const API_BASE = import.meta.env.VITE_API_URL || 'https://twoby-production.up.railway.app'
 
 export default function RichItemsEditor({
   value,
@@ -32,28 +27,23 @@ export default function RichItemsEditor({
   enableImages = true,
   contextQuery = ""
 }: RichItemsEditorProps) {
-  const [items, setItems] = useState<Item[]>([])
+  const [items, setItems] = useState<EditorItem[]>([])
   const [newItemText, setNewItemText] = useState('')
   const imageCache = useRef<Record<string, string[]>>({})  // Cache stores arrays of image URLs
+  const lastEmittedValueJson = useRef<string>('')
+  const itemsRef = useRef<EditorItem[]>([])
 
-  // Initialize items from value prop only once on mount
   useEffect(() => {
-    if (items.length === 0 && value.length > 0) {
-      const parsedItems = value.map((item, index) => ({
-        id: `item-${Date.now()}-${index}`,
-        text: item.label,
-        image_url: item.image_url
-      }))
-      setItems(parsedItems)
-    }
-  }, [])
+    itemsRef.current = items
+  }, [items])
 
   // Update parent when items change
-  const updateParent = useCallback((updatedItems: Item[]) => {
+  const updateParent = useCallback((updatedItems: EditorItem[]) => {
     const structuredItems = updatedItems.map(item => ({
       label: item.text,
       image_url: item.image_url
     }))
+    lastEmittedValueJson.current = JSON.stringify(structuredItems)
     onChange(structuredItems)
   }, [onChange])
 
@@ -94,12 +84,19 @@ export default function RichItemsEditor({
     try {
       const response = await fetch(`${API_BASE}/api/images/search?q=${encodeURIComponent(searchQuery)}`)
       if (response.ok) {
-        const data = await response.json()
-        if (data.results && data.results.length > 0) {
+        const data: unknown = await response.json()
+        const results = (data as { results?: unknown })?.results
+        if (Array.isArray(results) && results.length > 0) {
           // Store all image URLs (prefer thumbnails for faster loading)
-          const imageUrls = data.results
-            .map((r: any) => r.thumbnail || r.url)
-            .filter((url: string) => url)
+          const imageUrls = results
+            .map((r) => {
+              if (!r || typeof r !== 'object') return ''
+              const obj = r as Record<string, unknown>
+              const thumbnail = typeof obj.thumbnail === 'string' ? obj.thumbnail : ''
+              const url = typeof obj.url === 'string' ? obj.url : ''
+              return thumbnail || url
+            })
+            .filter(Boolean)
 
           if (imageUrls.length > 0) {
             imageCache.current[cacheKey] = imageUrls
@@ -131,11 +128,75 @@ export default function RichItemsEditor({
     ))
   }, [enableImages, updateParent, contextQuery])
 
+  // Sync internal state when parent changes value programmatically (templates/suggestions).
+  useEffect(() => {
+    const incoming = value || []
+    const incomingJson = JSON.stringify(incoming)
+    if (incomingJson === lastEmittedValueJson.current) return
+
+    const prev = itemsRef.current
+    const used = new Set<string>()
+    const created: EditorItem[] = []
+
+    const next: EditorItem[] = incoming.map((v, index) => {
+      const label = String(v.label ?? '')
+      const image_url = v.image_url
+
+      const byIndex = prev[index]
+      if (byIndex && !used.has(byIndex.id) && byIndex.text === label) {
+        used.add(byIndex.id)
+        const imageChanged = (byIndex.image_url || '') !== (image_url || '')
+        return {
+          ...byIndex,
+          text: label,
+          image_url,
+          imageOptions: imageChanged ? undefined : byIndex.imageOptions,
+          imageIndex: imageChanged ? undefined : byIndex.imageIndex,
+        }
+      }
+
+      const match = prev.find((p) => !used.has(p.id) && p.text === label)
+      if (match) {
+        used.add(match.id)
+        const imageChanged = (match.image_url || '') !== (image_url || '')
+        return {
+          ...match,
+          text: label,
+          image_url,
+          imageOptions: imageChanged ? undefined : match.imageOptions,
+          imageIndex: imageChanged ? undefined : match.imageIndex,
+        }
+      }
+
+      const item: EditorItem = {
+        id: `item-${Date.now()}-${index}-${Math.random().toString(16).slice(2, 6)}`,
+        text: label,
+        image_url,
+      }
+      created.push(item)
+      return item
+    })
+
+    itemsRef.current = next
+    lastEmittedValueJson.current = incomingJson
+    setItems(next)
+
+    // Auto-fetch images for newly-added items (non-disruptive background work).
+    if (enableImages) {
+      created
+        .filter((i) => i.text.trim() && !i.image_url)
+        .slice(0, 12)
+        .forEach((i) => {
+          fetchImageForItem(i.id, i.text)
+        })
+    }
+  }, [value, enableImages, fetchImageForItem])
+
   // Add a new item
   const addItem = useCallback(() => {
     if (!newItemText.trim()) return
 
-    const newItem: Item = {
+    const newItem: EditorItem = {
       id: `item-${Date.now()}`,
       text: newItemText.trim()
     }
@@ -215,7 +276,7 @@ export default function RichItemsEditor({
           onChange={(e) => setNewItemText(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
-          className="flex-1 px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          className="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
         />
         <button
           type="button"
@@ -233,13 +294,13 @@ export default function RichItemsEditor({
           {items.map((item) => (
             <div
               key={item.id}
-              className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg group"
+              className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg group"
             >
               {/* Image thumbnail */}
               {enableImages && (
-                <div className="relative w-8 h-8 flex-shrink-0 rounded overflow-hidden bg-gray-200 flex items-center justify-center group/img">
+                <div className="relative w-8 h-8 flex-shrink-0 rounded overflow-hidden bg-slate-200 flex items-center justify-center group/img">
                   {item.imageLoading ? (
-                    <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />
+                    <Loader2 className="w-4 h-4 text-slate-400 animate-spin" />
                   ) : item.image_url ? (
                     <>
                       <img
@@ -275,10 +336,10 @@ export default function RichItemsEditor({
                     <button
                       type="button"
                       onClick={() => retryImage(item.id, item.text)}
-                      className="w-full h-full flex items-center justify-center hover:bg-gray-300 transition-colors"
+                      className="w-full h-full flex items-center justify-center hover:bg-slate-300 transition-colors"
                       title="Click to fetch image"
                     >
-                      <Image className="w-4 h-4 text-gray-400" />
+                      <Image className="w-4 h-4 text-slate-400" />
                     </button>
                   )}
                 </div>
@@ -288,12 +349,12 @@ export default function RichItemsEditor({
                 type="text"
                 value={item.text}
                 onChange={(e) => updateItemText(item.id, e.target.value)}
-                className="flex-1 px-3 py-1.5 bg-white border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="flex-1 px-3 py-1.5 bg-white border border-slate-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
               <button
                 type="button"
                 onClick={() => removeItem(item.id)}
-                className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -303,7 +364,7 @@ export default function RichItemsEditor({
       )}
 
       {/* Item count */}
-      <div className="text-xs text-gray-500">
+      <div className="text-xs text-slate-500">
         {items.length} item{items.length !== 1 ? 's' : ''} added
         {items.length < 2 && <span className="text-amber-600 ml-1">(minimum 2 required)</span>}
       </div>

@@ -228,27 +228,3 @@ function forceDirectedLayout(
   return result
 }
 
-/**
- * Alternative: Simple offset strategy for dense areas
- * Arranges overlapping items in a spiral pattern
- */
-export function spiralLayout(
-  items: Array<{ id: string; x: number; y: number; label: string }>,
-  centerX: number,
-  centerY: number,
-  radius: number = 5
-): Array<{ x: number; y: number }> {
-  const positions: Array<{ x: number; y: number }> = []
-  const angleStep = (2 * Math.PI) / items.length
-  
-  items.forEach((_, index) => {
-    const angle = index * angleStep
-    const r = radius * (1 + index * 0.1) // Slightly increasing radius
-    positions.push({
-      x: centerX + Math.cos(angle) * r,
-      y: centerY + Math.sin(angle) * r
-    })
-  })
-  
-  return positions
-}

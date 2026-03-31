@@ -69,6 +69,7 @@ make docker-run
 - `POST /api/charts/{id}/items?k={admin_key}` - Add items to chart
 - `GET /api/charts/{id}/public?s={share_key}` - Get chart data
 - `GET /api/charts/public` - List public charts
+- `GET /api/charts/feed?filter=trending|new|featured&limit=12&offset=0&mode=two_axis` - Public feed
 - `GET /api/charts/{id}/feedback?k={admin_key}` - Get feedback
 - `GET /api/charts/{id}/export-csv?k={admin_key}` - Export to CSV
 

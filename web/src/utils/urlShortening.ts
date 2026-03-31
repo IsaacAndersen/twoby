@@ -1,9 +1,5 @@
-/**
- * In-house URL shortening utilities
- * Creates memorable short codes and manages them through our backend
- */
-
-const API_BASE = import.meta.env.VITE_API_URL || 'https://twobyapi.ike.rs'
+import { API_BASE } from '@/config'
+const isLocalHost = /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname)
 
 // Cache shortened URLs to avoid repeated API calls
 const urlCache = new Map<string, string>()
@@ -66,7 +62,10 @@ export async function createShortUrl(path: string, params: URLSearchParams, titl
     
     if (response.ok) {
       const data = await response.json()
-      const shortUrl = data.short_url
+      const shortCode = typeof data.short_code === 'string' ? data.short_code : ''
+      const shortUrl = shortCode && !isLocalHost
+        ? `${window.location.origin}/s/${shortCode}`
+        : data.short_url
       urlCache.set(fullUrl, shortUrl)
       return shortUrl
     }
@@ -74,31 +73,8 @@ export async function createShortUrl(path: string, params: URLSearchParams, titl
     console.warn('Backend URL shortening failed, using fallback:', error)
   }
   
-  // Fallback: Create a client-side short format
-  const chartId = path.match(/\/[vc]\/([^?]+)/)?.[1] || 'unknown'
-  const baseUrl = window.location.origin
-  
-  const memorableCode = title ? generateMemorableCode(title, chartId) : chartId.substring(0, 8)
-  const shortUrl = `${baseUrl}/s/${memorableCode}`
-  
-  urlCache.set(fullUrl, shortUrl)
-  return shortUrl
+  // Fallback: return the original long URL (guaranteed to resolve)
+  urlCache.set(fullUrl, fullUrl)
+  return fullUrl
 }
 
-/**
- * Get the display version of a URL (for showing to users)
- */
-export function getDisplayUrl(url: string): string {
-  // Remove protocol and www
-  return url
-    .replace(/^https?:\/\/(www\.)?/, '')
-    .replace(/\?.*$/, '') // Remove query params for display
-    .replace(/\/$/, '') // Remove trailing slash
-}
-
-/**
- * Get the full URL for a given path and params
- */
-export function getFullUrl(path: string, params: URLSearchParams): string {
-  return `${window.location.origin}${path}${params.toString() ? '?' + params.toString() : ''}`
-}

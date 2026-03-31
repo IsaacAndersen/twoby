@@ -1,37 +1,13 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useParams, useSearchParams, Link, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
-import { Home } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 import { useMetaTags } from '@/hooks/useMetaTags'
 import { SmartPairSelector } from '@/utils/pairSelection'
-import Confetti from './Confetti'
+import { getAxisHighValue } from '@/utils/chart'
+import { API_BASE } from '@/config'
+import type { Item, ChartData } from '@/types'
 import Avatar from './Avatar'
-
-type ChartMode = 'tier' | 'single_axis' | 'two_axis'
-
-interface Item {
-  id: string
-  label: string
-  image_url?: string
-  r_x?: number
-  r_y?: number
-  x_mu?: number
-  y_mu?: number
-  tier_mu?: number
-}
-
-interface ChartData {
-  title: string
-  mode: ChartMode
-  x_label?: string
-  y_label?: string
-  description?: string
-  creator_take?: string
-  items: Item[]
-  show_images?: boolean
-  voting_active?: boolean
-  ends_at?: string
-}
 
 export default function VoteChart() {
   const { id } = useParams<{ id: string }>()
@@ -42,74 +18,55 @@ export default function VoteChart() {
   const [pairA, setPairA] = useState<Item | null>(null)
   const [pairB, setPairB] = useState<Item | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  // Removed voting mode selection - only pairwise voting now
   const [currentAxis, setCurrentAxis] = useState<'x' | 'y'>('x')
   const [voteCount, setVoteCount] = useState(0)
-  const [voteLimit, setVoteLimit] = useState(10)
   const [axisVoteCounts, setAxisVoteCounts] = useState({ x: 0, y: 0 })
   const [currentPhase, setCurrentPhase] = useState<'x_phase' | 'y_phase' | 'mixed_phase'>('x_phase')
   const [showImages, setShowImages] = useState(true)
   const [pairSelector, setPairSelector] = useState<SmartPairSelector | null>(null)
-  const [showConfetti, setShowConfetti] = useState(false)
 
-  const API_BASE = import.meta.env.VITE_API_URL || 'https://twobyapi.ike.rs'
+  const handlePairVoteRef = useRef(handlePairVote)
+  handlePairVoteRef.current = handlePairVote
 
-  function renderItem(item: Item, size: 'small' | 'large' = 'large') {
-    const hasImages = chart?.items.some(i => i.image_url)
-    const shouldShowImages = hasImages && showImages
+  const voteLimit = useMemo(
+    () => chart ? Math.min(10, Math.max(2, Math.ceil(chart.items.length * 0.7))) : 10,
+    [chart],
+  )
 
-    if (shouldShowImages && size === 'large') {
-      // Large voting buttons - vertical layout with bigger image
+  const hasImages = useMemo(
+    () => chart?.items.some(i => i.image_url) ?? false,
+    [chart],
+  )
+
+  function renderItem(item: Item) {
+    if (hasImages && showImages) {
       return (
-        <div className="flex flex-col items-center gap-2">
+        <div className="flex flex-col items-center gap-2.5">
           {item.image_url ? (
             <img
               src={item.image_url}
               alt={item.label}
-              className="w-16 h-16 sm:w-20 sm:h-20 object-contain rounded"
+              className="h-16 w-16 rounded-lg object-contain sm:h-20 sm:w-20"
             />
           ) : (
-            <Avatar
-              src={undefined}
-              name={item.label}
-              size="lg"
-            />
+            <Avatar src={undefined} name={item.label} size="lg" />
           )}
-          <span className="font-medium text-center leading-tight">{item.label}</span>
+          <span className="text-center font-semibold leading-tight">{item.label}</span>
         </div>
       )
     }
 
-    if (shouldShowImages) {
-      // Small size - horizontal layout
-      return (
-        <div className="flex items-center gap-3 text-sm">
-          <Avatar
-            src={item.image_url || undefined}
-            name={item.label}
-            size="sm"
-          />
-          <span className="font-medium">{item.label}</span>
-        </div>
-      )
-    }
-
-    return <span className="font-medium">{item.label}</span>
+    return <span className="font-semibold">{item.label}</span>
   }
-
 
   function formatTimeRemaining(endTime: string): string {
     try {
       const end = new Date(endTime.replace('Z', '+00:00'))
-      const now = new Date()
-      const diff = end.getTime() - now.getTime()
-      
+      const diff = end.getTime() - Date.now()
       if (diff <= 0) return 'Voting ended'
-      
-      const days = Math.floor(diff / (1000 * 60 * 60 * 24))
-      const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
-      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
-      
+      const days = Math.floor(diff / 86_400_000)
+      const hours = Math.floor((diff % 86_400_000) / 3_600_000)
+      const minutes = Math.floor((diff % 3_600_000) / 60_000)
       if (days > 0) return `${days} day${days === 1 ? '' : 's'} left`
       if (hours > 0) return `${hours} hour${hours === 1 ? '' : 's'} left`
       return `${minutes} minute${minutes === 1 ? '' : 's'} left`
@@ -118,77 +75,47 @@ export default function VoteChart() {
     }
   }
 
-  function getAxisHighValue(label?: string): string {
-    if (!label) return 'preferred'
-    const parts = label.split(' → ')
-    if (parts.length > 1) return parts[1]
-    const words = label.split(' ')
-    return words[words.length - 1] || 'preferred'
-  }
-
-  // Update meta tags for sharing
   useMetaTags({
-    title: chart ? `Vote on "${chart.title}" - twoby` : 'twoby - Vote on Opinion Maps',
-    description: chart ? `Cast your vote on "${chart.title}" - help create a collaborative ${chart.mode === 'tier' ? 'tier list' : chart.mode === 'single_axis' ? 'ranking' : '2×2 comparison'} on twoby` : 'Vote on collaborative opinion maps and see real-time results.',
+    title: chart ? `Vote: ${chart.title} - twoby` : 'twoby',
+    description: chart ? `Vote on "${chart.title}"` : 'Vote on 2x2 charts',
     url: window.location.href,
-    image: id && shareKey ? `https://twobyapi.ike.rs/api/og/chart/${id}?s=${shareKey}&type=vote` : 'https://twoby.ike.rs/og-default.png'
+    image: id && shareKey
+      ? `${API_BASE}/api/og/chart/${id}?s=${encodeURIComponent(shareKey)}&type=vote`
+      : `${window.location.origin}/og-default.png`
   })
 
   useEffect(() => {
     loadChart()
-    // Load vote count from sessionStorage
     const saved = sessionStorage.getItem(`votes_${id}`)
-    if (saved) {
-      const count = parseInt(saved)
-      setVoteCount(count)
-      // Check against dynamic limit once chart is loaded
-    }
-    
-    // Initialize smart pair selector
-    if (id) {
-      setPairSelector(new SmartPairSelector(id))
-    }
+    if (saved) setVoteCount(parseInt(saved))
+    if (id) setPairSelector(new SmartPairSelector(id))
   }, [id, shareKey])
 
-  // Add keyboard event listener for arrow keys
   useEffect(() => {
     function handleKeyPress(event: KeyboardEvent) {
       if (!pairA || !pairB || chart?.voting_active === false) return
-      
       if (event.key === 'ArrowLeft') {
         event.preventDefault()
-        handlePairVote(pairA)
+        handlePairVoteRef.current(pairA)
       } else if (event.key === 'ArrowRight') {
         event.preventDefault()
-        handlePairVote(pairB)
+        handlePairVoteRef.current(pairB)
       }
     }
-
     window.addEventListener('keydown', handleKeyPress)
     return () => window.removeEventListener('keydown', handleKeyPress)
   }, [pairA, pairB, chart?.voting_active])
 
   async function loadChart() {
     if (!id || !shareKey) return
-
     try {
       const response = await fetch(`${API_BASE}/api/charts/${id}/public?s=${shareKey}`)
       if (!response.ok) throw new Error('Chart not found')
-      
       const data = await response.json()
       setChart(data)
-      
-      // Calculate dynamic vote limit based on item count
-      const itemCount = data.items.length
-      const dynamicLimit = Math.min(10, Math.max(2, Math.ceil(itemCount * 0.7)))
-      setVoteLimit(dynamicLimit)
-      
-      // Load existing vote count from sessionStorage (but don't redirect)
-      
       generatePair(data.items)
     } catch (error) {
       console.error('Error loading chart:', error)
-      alert('Failed to load chart')
     } finally {
       setIsLoading(false)
     }
@@ -196,20 +123,15 @@ export default function VoteChart() {
 
   function generatePair(items: Item[]) {
     if (items.length < 2) return
-    
-    // Use smart pair selector if available
     if (pairSelector) {
       const smartPair = pairSelector.selectPair(items)
       if (smartPair) {
         setPairA(smartPair[0])
         setPairB(smartPair[1])
-        // Record that this pair was shown
         pairSelector.recordPairShown(smartPair[0], smartPair[1])
         return
       }
     }
-    
-    // Fallback to random selection
     const shuffled = [...items].sort(() => Math.random() - 0.5)
     setPairA(shuffled[0])
     setPairB(shuffled[1])
@@ -217,15 +139,10 @@ export default function VoteChart() {
 
   async function handlePairVote(winner: Item, axis?: 'x' | 'y') {
     if (!pairA || !pairB || !shareKey || !chart) return
-    
-    // Check if voting is still active
-    if (chart.voting_active === false) {
-      alert('Voting period has ended for this chart.')
-      return
-    }
+    if (chart.voting_active === false) return
 
     try {
-      await fetch(`${API_BASE}/api/vote/pair?s=${shareKey}`, {
+      const response = await fetch(`${API_BASE}/api/vote/pair?s=${shareKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -237,242 +154,206 @@ export default function VoteChart() {
         })
       })
 
+      if (!response.ok) {
+        if (response.status === 409) {
+          setChart(prev => prev ? { ...prev, voting_active: false } : prev)
+          return
+        }
+        throw new Error(`Vote failed (${response.status})`)
+      }
+
       const newCount = voteCount + 1
       setVoteCount(newCount)
       sessionStorage.setItem(`votes_${id}`, newCount.toString())
 
-      // Only auto-redirect on first completion (when exactly reaching the limit)
-      // After that, let users vote indefinitely until they choose to see results
       if (newCount === voteLimit) {
-        // Show confetti celebration
-        setShowConfetti(true)
-        
-        // First time reaching the limit - auto-redirect to results after confetti
-        setTimeout(() => {
-          navigate(`/c/${id}?s=${shareKey}`)
-        }, 2500)
+        setTimeout(() => navigate(`/c/${id}?s=${shareKey}`), 800)
         return
       }
 
-      // For 2D charts, handle sequential voting by phase
       if (chart.mode === 'two_axis') {
+        const effectiveAxis = axis || currentAxis
         const newAxisCounts = {
           ...axisVoteCounts,
-          [axis || currentAxis]: axisVoteCounts[axis || currentAxis] + 1
+          [effectiveAxis]: axisVoteCounts[effectiveAxis] + 1
         }
         setAxisVoteCounts(newAxisCounts)
-        
-        // Determine phase transitions
+
         const halfLimit = Math.ceil(voteLimit / 2)
         if (currentPhase === 'x_phase' && newAxisCounts.x >= halfLimit) {
           setCurrentPhase('y_phase')
           setCurrentAxis('y')
         } else if (currentPhase === 'y_phase' && newAxisCounts.y >= halfLimit) {
           setCurrentPhase('mixed_phase')
-          // In mixed phase, alternate axes
-          setCurrentAxis(currentAxis === 'x' ? 'y' : 'x')
+          setCurrentAxis(effectiveAxis === 'x' ? 'y' : 'x')
         }
       }
 
       generatePair(chart.items)
     } catch (error) {
       console.error('Error voting:', error)
-      alert('Failed to submit vote')
     }
   }
 
+  const progressPercent = Math.min(100, (voteCount / voteLimit) * 100)
+  const isComplete = voteCount >= voteLimit
 
-  if (isLoading) return <div className="container mx-auto py-8 text-center">Loading...</div>
-  if (!chart) return <div className="container mx-auto py-8 text-center">Chart not found</div>
+  if (isLoading) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-300 border-t-slate-900" />
+      </div>
+    )
+  }
+
+  if (!chart) {
+    return (
+      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4">
+        <h2 className="text-xl font-semibold text-slate-900">Chart not found</h2>
+        <Link to="/"><Button variant="outline">Back to Home</Button></Link>
+      </div>
+    )
+  }
 
   return (
-    <div className="min-h-screen flex flex-col">
-      {/* Minimal header */}
-      <div className="flex justify-between items-center p-4 border-b">
-        <Link to="/">
-          <Button variant="ghost" size="sm">
-            <Home className="w-4 h-4 mr-2" />
-            Home
-          </Button>
-        </Link>
-        <div className="flex flex-col items-center">
-          <h1 className="text-lg font-semibold">{chart.title}</h1>
-          {chart.description && (
-            <p className="text-sm text-gray-600 mt-1 max-w-md text-center">
-              {chart.description}
-            </p>
-          )}
-          {chart.ends_at && (
-            <span className={`text-xs ${chart.voting_active ? 'text-orange-600' : 'text-red-600'} ${chart.description ? 'mt-1' : ''}`}>
-              {formatTimeRemaining(chart.ends_at)}
-            </span>
-          )}
-        </div>
-        <Link to="/create">
-          <Button variant="ghost" size="sm">
-            Create New
-          </Button>
-        </Link>
+    <div className="mx-auto flex min-h-[calc(100vh-200px)] max-w-2xl flex-col px-4 py-6">
+      <div className="mb-6 text-center">
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">{chart.title}</h1>
+        {chart.description && (
+          <p className="mt-1.5 text-sm text-slate-500">{chart.description}</p>
+        )}
+        {chart.ends_at && (
+          <span className={`mt-1 inline-block text-xs font-medium ${chart.voting_active ? 'text-amber-600' : 'text-red-600'}`}>
+            {formatTimeRemaining(chart.ends_at)}
+          </span>
+        )}
       </div>
-      
-      {/* Main content area */}
-      <div className="flex-1 flex flex-col max-w-2xl w-full mx-auto p-4">
-        {/* Enhanced progress bar with axis breakdown for 2x2 */}
-        <div className="mb-6">
-          <div className="flex justify-between items-center mb-2">
-            <span className="text-sm text-muted-foreground">
-              {voteCount} votes cast
-            </span>
-            {voteCount < voteLimit ? (
-              <span className="text-xs text-muted-foreground">
-                {voteLimit - voteCount} to see results
-              </span>
-            ) : (
-              <span className="text-sm font-medium text-green-600 animate-pulse">
-                🎉 Results unlocked!
-              </span>
-            )}
-          </div>
-          
-          {/* Simple single progress bar */}
-          <div className="w-full bg-gray-100 rounded-full h-1.5">
-            <div 
-              className={`h-1.5 rounded-full transition-all duration-300 ${
-                voteCount >= voteLimit ? 'bg-green-600' : 'bg-gray-900'
-              }`}
-              style={{ width: `${Math.min(100, (voteCount / voteLimit) * 100)}%` }}
-            />
-          </div>
-          
-          {voteCount >= voteLimit && (
-            <div className="mt-3 text-center">
-              <Button 
-                onClick={() => navigate(`/c/${id}?s=${shareKey}`)}
-                className="bg-green-600 hover:bg-green-700 text-white px-6"
-                size="sm"
-              >
-                View Results →
-              </Button>
-            </div>
+
+      <div className="mb-8">
+        <div className="mb-2 flex items-center justify-between text-sm">
+          <span className="tabular-nums text-slate-500">{voteCount} / {voteLimit} votes</span>
+          {isComplete ? (
+            <span className="font-medium text-emerald-600">Results unlocked</span>
+          ) : (
+            <span className="text-slate-400">{voteLimit - voteCount} to go</span>
           )}
         </div>
-        
-
-        {/* Voting ended message */}
-        {chart.voting_active === false && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded">
-            <p className="text-sm text-red-700">
-              Voting period ended. View final results below.
-            </p>
-            <Button 
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+          <div
+            className={`h-full rounded-full transition-all duration-300 ${isComplete ? 'bg-emerald-500' : 'bg-slate-900'}`}
+            style={{ width: `${progressPercent}%` }}
+          />
+        </div>
+        {isComplete && (
+          <div className="mt-3 text-center">
+            <Button
               onClick={() => navigate(`/c/${id}?s=${shareKey}`)}
+              className="bg-emerald-600 hover:bg-emerald-700"
               size="sm"
-              className="mt-2"
             >
               View Results
+              <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           </div>
         )}
-
-        {chart.voting_active !== false && chart?.items.some(i => i.image_url) && (
-          <div className="mb-4 flex justify-center">
-            <Button 
-              variant={showImages ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setShowImages(!showImages)}
-            >
-              {showImages ? '🖼️ Images' : '📝 Text'}
-            </Button>
-          </div>
-        )}
-
-            {/* Auto-transition to results when vote limit reached */}
-
-        {pairA && pairB && (
-          <div className="flex-1 flex flex-col">
-            {/* Clean question with interactive axis tabs for 2x2 */}
-            <div className="mb-8 text-center">
-              {chart.mode === 'two_axis' && (
-                <div className="flex justify-center gap-1 mb-4 bg-gray-100 p-1 rounded-lg inline-flex mx-auto">
-                  <button
-                    onClick={() => setCurrentAxis('x')}
-                    className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                      currentAxis === 'x' 
-                        ? 'bg-white text-blue-700 shadow-sm' 
-                        : 'text-gray-500 hover:text-gray-700'
-                    }`}
-                  >
-                    {chart.x_label || 'X-axis'}
-                  </button>
-                  <button
-                    onClick={() => setCurrentAxis('y')}
-                    className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                      currentAxis === 'y' 
-                        ? 'bg-white text-purple-700 shadow-sm' 
-                        : 'text-gray-500 hover:text-gray-700'
-                    }`}
-                  >
-                    {chart.y_label || 'Y-axis'}
-                  </button>
-                </div>
-              )}
-              <h2 className="text-2xl font-medium">
-                {chart.mode === 'tier' 
-                  ? 'Which ranks higher?' 
-                  : chart.mode === 'single_axis'
-                    ? `Which is more "${getAxisHighValue(chart.x_label)}"?`
-                    : `Which is more "${getAxisHighValue(currentAxis === 'x' ? chart.x_label : chart.y_label)}"?`
-                }
-              </h2>
-            </div>
-            
-            <div className="flex-1 flex flex-col justify-center space-y-6 sm:space-y-8">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 max-w-3xl mx-auto w-full">
-                <Button
-                  variant="outline"
-                  className="h-32 sm:h-40 text-lg sm:text-xl font-medium border-2 transition-all duration-200 hover:scale-[1.02] hover:shadow-lg hover:border-gray-400 hover:bg-gray-50 active:scale-[0.98] active:bg-gray-100"
-                  onClick={() => handlePairVote(pairA)}
-                >
-                  {renderItem(pairA)}
-                </Button>
-
-                <Button
-                  variant="outline"
-                  className="h-32 sm:h-40 text-lg sm:text-xl font-medium border-2 transition-all duration-200 hover:scale-[1.02] hover:shadow-lg hover:border-gray-400 hover:bg-gray-50 active:scale-[0.98] active:bg-gray-100"
-                  onClick={() => handlePairVote(pairB)}
-                >
-                  {renderItem(pairB)}
-                </Button>
-              </div>
-              
-              <div className="text-center space-y-4">
-                <div className="flex items-center justify-center gap-2 text-sm text-gray-500 bg-gray-50 px-3 py-2 rounded-full">
-                  <span>💡</span>
-                  <span>Click a button or use ← / → arrow keys</span>
-                </div>
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  className="text-gray-600 border-gray-300 hover:bg-gray-50"
-                  onClick={() => {
-                    // Skip this pair without recording a preference
-                    generatePair(chart.items)
-                  }}
-                >
-                  No preference / Skip
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
-
       </div>
-      
-      {/* Confetti animation */}
-      <Confetti 
-        show={showConfetti} 
-        onComplete={() => setShowConfetti(false)} 
-      />
+
+      {chart.voting_active === false && (
+        <div className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-center">
+          <p className="text-sm font-medium text-red-700">Voting has ended for this chart.</p>
+          <Button onClick={() => navigate(`/c/${id}?s=${shareKey}`)} size="sm" className="mt-2">
+            View Results
+          </Button>
+        </div>
+      )}
+
+      {chart.voting_active !== false && hasImages && (
+        <div className="mb-4 flex justify-center">
+          <button
+            type="button"
+            onClick={() => setShowImages(!showImages)}
+            className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+              showImages
+                ? 'border-slate-300 bg-slate-100 text-slate-700'
+                : 'border-slate-200 text-slate-500 hover:bg-slate-50'
+            }`}
+          >
+            {showImages ? 'Hide images' : 'Show images'}
+          </button>
+        </div>
+      )}
+
+      {pairA && pairB && chart.voting_active !== false && (
+        <div className="flex flex-1 flex-col">
+          <div className="mb-8 text-center">
+            {chart.mode === 'two_axis' && (
+              <div className="mb-4 inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1">
+                <button
+                  type="button"
+                  onClick={() => setCurrentAxis('x')}
+                  className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+                    currentAxis === 'x'
+                      ? 'bg-white text-blue-700 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  {chart.x_label || 'X-axis'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentAxis('y')}
+                  className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+                    currentAxis === 'y'
+                      ? 'bg-white text-purple-700 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  {chart.y_label || 'Y-axis'}
+                </button>
+              </div>
+            )}
+            <h2 className="text-xl font-semibold text-slate-900 sm:text-2xl">
+              Which is more "{getAxisHighValue(currentAxis === 'x' ? chart.x_label : chart.y_label)}"?
+            </h2>
+          </div>
+
+          <div className="flex flex-1 flex-col items-center justify-center">
+            <div className="relative grid w-full max-w-xl grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-5">
+              <button
+                type="button"
+                className="flex h-36 items-center justify-center rounded-2xl border-2 border-slate-200 bg-white px-6 text-lg font-medium text-slate-900 transition-colors hover:border-slate-400 hover:bg-slate-50 active:bg-slate-100 sm:h-44 sm:text-xl"
+                onClick={() => handlePairVote(pairA)}
+              >
+                {renderItem(pairA)}
+              </button>
+
+              <button
+                type="button"
+                className="flex h-36 items-center justify-center rounded-2xl border-2 border-slate-200 bg-white px-6 text-lg font-medium text-slate-900 transition-colors hover:border-slate-400 hover:bg-slate-50 active:bg-slate-100 sm:h-44 sm:text-xl"
+                onClick={() => handlePairVote(pairB)}
+              >
+                {renderItem(pairB)}
+              </button>
+            </div>
+
+            <div className="mt-8 flex flex-col items-center gap-3">
+              <div className="hidden items-center gap-1.5 text-xs text-slate-400 sm:flex">
+                <kbd className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-[10px]">&larr;</kbd>
+                <span>or</span>
+                <kbd className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-[10px]">&rarr;</kbd>
+                <span className="ml-1">to vote with keyboard</span>
+              </div>
+              <button
+                type="button"
+                className="text-sm text-slate-400 transition-colors hover:text-slate-600"
+                onClick={() => generatePair(chart.items)}
+              >
+                Skip this pair
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

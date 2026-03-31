@@ -3,6 +3,8 @@
   "outputDirectory": "dist",
   "framework": "vite",
   "rewrites": [
+    { "source": "/s/(.*)", "destination": "https://twoby-production.up.railway.app/s/$1" },
+    { "source": "/api/og/(.*)", "destination": "https://twoby-production.up.railway.app/api/og/$1" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

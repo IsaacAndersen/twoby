@@ -1,7 +1,6 @@
 interface Item {
   id: string
   label: string
-  [key: string]: any
 }
 
 interface PairHistory {
@@ -137,42 +136,4 @@ export class SmartPairSelector {
     this.saveHistory()
   }
 
-  /**
-   * Get coverage statistics for debugging/display
-   */
-  getCoverageStats(items: Item[]): {
-    itemCoverage: Array<{ item: Item; count: number }>
-    totalPairs: number
-    averageCoverage: number
-    minCoverage: number
-    maxCoverage: number
-  } {
-    const itemCoverage = items.map(item => ({
-      item,
-      count: this.getItemShowCount(item.id)
-    }))
-
-    const counts = itemCoverage.map(ic => ic.count)
-    const totalPairs = this.pairHistory.size
-    const averageCoverage = counts.reduce((sum, count) => sum + count, 0) / items.length
-    const minCoverage = Math.min(...counts)
-    const maxCoverage = Math.max(...counts)
-
-    return {
-      itemCoverage,
-      totalPairs,
-      averageCoverage,
-      minCoverage,
-      maxCoverage
-    }
-  }
-
-  /**
-   * Reset history for a new session
-   */
-  reset() {
-    this.itemHistory = {}
-    this.pairHistory.clear()
-    sessionStorage.removeItem(`pair_history_${this.sessionKey}`)
-  }
 }

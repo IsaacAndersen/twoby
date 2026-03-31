@@ -1,39 +1,17 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useParams, useSearchParams, Link } from 'react-router-dom'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
-import { Home, Share2, Star, Plus, Trash2, Pencil, X, Check } from 'lucide-react'
+import { Share2, Plus, Trash2, Pencil, X, Check, PauseCircle, PlayCircle, ExternalLink, Copy, Download } from 'lucide-react'
 import { useMetaTags } from '@/hooks/useMetaTags'
 import { resolveCollisions } from '@/utils/collision'
+import { createShortUrl } from '@/utils/urlShortening'
+import { buildShareTargets } from '@/utils/shareLinks'
+import { imageFrameSize, scoreToPosition, normalizeAxisPair } from '@/utils/chart'
+import { API_BASE } from '@/config'
+import type { ChartData } from '@/types'
 import Avatar from './Avatar'
-
-type ChartMode = 'tier' | 'single_axis' | 'two_axis'
-
-interface Item {
-  id: string
-  label: string
-  image_url?: string
-  r_x?: number
-  r_y?: number
-  x_mu?: number
-  y_mu?: number
-  tier_mu?: number
-}
-
-interface ChartData {
-  title: string
-  mode: ChartMode
-  x_label?: string
-  y_label?: string
-  description?: string
-  creator_take?: string
-  items: Item[]
-  tool_name?: string
-  task_description?: string
-  task_image_url?: string
-}
 
 export default function ViewChart() {
   const { id } = useParams<{ id: string }>()
@@ -43,23 +21,34 @@ export default function ViewChart() {
   const [chart, setChart] = useState<ChartData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [showImages, setShowImages] = useState(true)
-  const [showFeedback, setShowFeedback] = useState(false)
-  const [toolHelpfulness, setToolHelpfulness] = useState(0)
-  const [freeResponse, setFreeResponse] = useState('')
-  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false)
-  const [adminFeedback, setAdminFeedback] = useState<any[]>([])
-  const [showAdminFeedback, setShowAdminFeedback] = useState(false)
   const [showEditPanel, setShowEditPanel] = useState(false)
   const [newItemLabel, setNewItemLabel] = useState('')
   const [editingItemId, setEditingItemId] = useState<string | null>(null)
   const [editingLabel, setEditingLabel] = useState('')
+  const [isUpdatingVotingState, setIsUpdatingVotingState] = useState(false)
+  const [shareMenuOpen, setShareMenuOpen] = useState(false)
+  const [copiedLink, setCopiedLink] = useState<string | null>(null)
 
-  const API_BASE = import.meta.env.VITE_API_URL || 'https://twobyapi.ike.rs'
+  const effectiveShareKey = shareKey || 'public'
 
-  // Edit functions (admin only)
+  const hasImages = useMemo(
+    () => chart?.items.some(i => i.image_url) ?? false,
+    [chart],
+  )
+
+  useEffect(() => {
+    if (!shareMenuOpen) return
+    function onDocClick(e: MouseEvent) {
+      if (!(e.target as HTMLElement)?.closest('[data-share-menu]')) {
+        setShareMenuOpen(false)
+      }
+    }
+    document.addEventListener('click', onDocClick)
+    return () => document.removeEventListener('click', onDocClick)
+  }, [shareMenuOpen])
+
   async function addItem() {
     if (!id || !adminKey || !newItemLabel.trim()) return
-
     try {
       const response = await fetch(`${API_BASE}/api/charts/${id}/items?k=${adminKey}`, {
         method: 'POST',
@@ -68,7 +57,7 @@ export default function ViewChart() {
       })
       if (response.ok) {
         setNewItemLabel('')
-        loadChart() // Refresh to get new item
+        loadChart()
       }
     } catch (error) {
       console.error('Failed to add item:', error)
@@ -77,15 +66,10 @@ export default function ViewChart() {
 
   async function deleteItem(itemId: string) {
     if (!id || !adminKey) return
-    if (!confirm('Delete this item? This cannot be undone.')) return
-
+    if (!confirm('Delete this item?')) return
     try {
-      const response = await fetch(`${API_BASE}/api/charts/${id}/items/${itemId}?k=${adminKey}`, {
-        method: 'DELETE'
-      })
-      if (response.ok) {
-        loadChart() // Refresh
-      }
+      const response = await fetch(`${API_BASE}/api/charts/${id}/items/${itemId}?k=${adminKey}`, { method: 'DELETE' })
+      if (response.ok) loadChart()
     } catch (error) {
       console.error('Failed to delete item:', error)
     }
@@ -93,7 +77,6 @@ export default function ViewChart() {
 
   async function updateItem(itemId: string, newLabel: string) {
     if (!id || !adminKey || !newLabel.trim()) return
-
     try {
       const response = await fetch(
         `${API_BASE}/api/charts/${id}/items/${itemId}?k=${adminKey}&label=${encodeURIComponent(newLabel.trim())}`,
@@ -101,54 +84,60 @@ export default function ViewChart() {
       )
       if (response.ok) {
         setEditingItemId(null)
-        loadChart() // Refresh
+        loadChart()
       }
     } catch (error) {
       console.error('Failed to update item:', error)
     }
   }
 
-  async function submitFeedback() {
-    if (!id || !toolHelpfulness) return
-    
+  async function copyLink(type: 'results' | 'voting') {
+    const path = type === 'voting' ? `/v/${id}` : `/c/${id}`
     try {
-      await fetch(`${API_BASE}/api/feedback`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chart_id: id,
-          tool_helpfulness: toolHelpfulness,
-          free_response: freeResponse.trim()
-        })
-      })
-      setFeedbackSubmitted(true)
-      setTimeout(() => setShowFeedback(false), 2000)
-      // Refresh admin feedback if we're in admin mode
-      if (adminKey) {
-        loadAdminFeedback()
-      }
-    } catch (error) {
-      console.error('Failed to submit feedback:', error)
+      const params = new URLSearchParams()
+      params.set('s', effectiveShareKey)
+      const shortUrl = await createShortUrl(path, params, chart?.title)
+      await navigator.clipboard.writeText(shortUrl)
+    } catch {
+      await navigator.clipboard.writeText(`${window.location.origin}${path}?s=${effectiveShareKey}`)
     }
+    setCopiedLink(type)
+    setShareMenuOpen(false)
+    setTimeout(() => setCopiedLink(null), 1500)
   }
 
-  async function loadAdminFeedback() {
-    if (!id || !adminKey) return
-    
+  async function openSocialShare(target: 'x' | 'reddit' | 'facebook') {
+    let url = `${window.location.origin}/c/${id}?s=${effectiveShareKey}`
     try {
-      const response = await fetch(`${API_BASE}/api/charts/${id}/feedback?k=${adminKey}`)
-      if (response.ok) {
-        const data = await response.json()
-        setAdminFeedback(data.feedback)
-      }
+      const params = new URLSearchParams()
+      params.set('s', effectiveShareKey)
+      url = await createShortUrl(`/c/${id}`, params, chart?.title)
+    } catch { /* fallback */ }
+    const links = buildShareTargets(url, `${chart?.title || 'Chart'} on twoby`)
+    window.open(links[target], '_blank', 'noopener,noreferrer')
+    setShareMenuOpen(false)
+  }
+
+  async function toggleVotingPause() {
+    if (!id || !adminKey || !chart) return
+    setIsUpdatingVotingState(true)
+    try {
+      const response = await fetch(`${API_BASE}/api/charts/${id}/owner-settings?k=${adminKey}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_voting_paused: !chart.is_voting_paused }),
+      })
+      if (!response.ok) throw new Error('Failed')
+      await loadChart()
     } catch (error) {
-      console.error('Failed to load feedback:', error)
+      console.error(error)
+    } finally {
+      setIsUpdatingVotingState(false)
     }
   }
 
   const exportCSV = async () => {
     if (!id || !adminKey) return
-    
     try {
       const response = await fetch(`${API_BASE}/api/charts/${id}/export-csv?k=${adminKey}`)
       if (response.ok) {
@@ -167,809 +156,245 @@ export default function ViewChart() {
     }
   }
 
-  function renderItem(item: Item, size: 'small' | 'medium' = 'medium') {
-    const hasImages = chart?.items.some(i => i.image_url)
-    const shouldShowImages = hasImages && showImages
-    
-    if (shouldShowImages) {
-      // Always show with avatar/monogram layout when in image mode
-      return (
-        <div className="flex items-center gap-2">
-          <Avatar 
-            src={item.image_url || undefined}
-            name={item.label}
-            size={size === 'small' ? 'sm' : 'md'}
-          />
-          <span className="font-medium">{item.label}</span>
-        </div>
-      )
-    }
-    
-    return <span className="font-medium">{item.label}</span>
-  }
-
-  // Update meta tags for sharing
   useMetaTags({
-    title: chart ? `${chart.title} - Results on twoby` : 'twoby - Collaborative Opinion Maps',
-    description: chart ? `View the results of "${chart.title}" - a collaborative ${chart.mode === 'tier' ? 'tier list' : chart.mode === 'single_axis' ? 'ranking' : '2×2 comparison'} on twoby` : 'Create collaborative opinion maps and see what your friends really think.',
+    title: chart ? `${chart.title} - twoby` : 'twoby',
+    description: chart ? `Results for "${chart.title}" on twoby` : 'Collaborative 2x2 charts',
     url: window.location.href,
-    image: id && shareKey ? `https://twobyapi.ike.rs/api/og/chart/${id}?s=${shareKey}&type=results` : 'https://twoby.ike.rs/og-default.png'
+    image: id
+      ? `${API_BASE}/api/og/chart/${id}?s=${encodeURIComponent(effectiveShareKey)}&type=results`
+      : `${window.location.origin}/og-default.png`
   })
 
   useEffect(() => {
     loadChart()
-    if (adminKey) {
-      loadAdminFeedback()
-    }
   }, [id, shareKey, adminKey])
 
   async function loadChart() {
-    if (!id || !shareKey) return
-
+    if (!id) return
     try {
-      const response = await fetch(`${API_BASE}/api/charts/${id}/public?s=${shareKey}`)
+      const response = await fetch(`${API_BASE}/api/charts/${id}/public?s=${effectiveShareKey}`)
       if (!response.ok) throw new Error('Chart not found')
-      
-      const data = await response.json()
-      setChart(data)
+      setChart(await response.json())
     } catch (error) {
       console.error('Error loading chart:', error)
-      alert('Failed to load chart')
     } finally {
       setIsLoading(false)
     }
   }
 
-  function renderTierList() {
+  const twoAxisData = useMemo(() => {
     if (!chart) return null
-
-    const tiers = [
-      { 
-        name: 'S', 
-        value: 4, 
-        gradient: 'from-red-500 to-rose-600',
-        bg: 'bg-gradient-to-br from-red-50 to-rose-50',
-        border: 'border-red-200',
-        glow: 'shadow-red-100'
-      },
-      { 
-        name: 'A', 
-        value: 3, 
-        gradient: 'from-orange-500 to-amber-600',
-        bg: 'bg-gradient-to-br from-orange-50 to-amber-50',
-        border: 'border-orange-200',
-        glow: 'shadow-orange-100'
-      },
-      { 
-        name: 'B', 
-        value: 2, 
-        gradient: 'from-yellow-500 to-yellow-600',
-        bg: 'bg-gradient-to-br from-yellow-50 to-yellow-50',
-        border: 'border-yellow-200',
-        glow: 'shadow-yellow-100'
-      },
-      { 
-        name: 'C', 
-        value: 1, 
-        gradient: 'from-emerald-500 to-green-600',
-        bg: 'bg-gradient-to-br from-emerald-50 to-green-50',
-        border: 'border-emerald-200',
-        glow: 'shadow-emerald-100'
-      }
-    ]
-
-    // Ensure all items are accounted for
-    const allAssignedItems = new Set<string>()
-    const tierData = tiers.map(tier => {
-      const items = chart.items
-        .filter(item => {
-          // More robust score calculation with fallbacks
-          let score = 2.5 // Default to middle tier
-          if (item.tier_mu !== null && item.tier_mu !== undefined) {
-            score = item.tier_mu
-          } else if (item.r_x !== null && item.r_x !== undefined) {
-            // Convert Elo rating to tier (1000 = tier 2.5)
-            score = Math.max(1, Math.min(4, (item.r_x - 900) / 100 + 2.5))
-          }
-          const assigned = Math.round(score) === tier.value
-          if (assigned) allAssignedItems.add(item.id)
-          return assigned
-        })
-        .sort((a, b) => {
-          const scoreA = a.tier_mu || (a.r_x ? (a.r_x - 1000) / 100 + 2.5 : 2.5)
-          const scoreB = b.tier_mu || (b.r_x ? (b.r_x - 1000) / 100 + 2.5 : 2.5)
-          return scoreB - scoreA
-        })
-      return { tier, items }
-    })
-
-    // Add any unassigned items to B tier as fallback
-    const unassignedItems = chart.items.filter(item => !allAssignedItems.has(item.id))
-    if (unassignedItems.length > 0) {
-      const bTierIndex = tierData.findIndex(t => t.tier.name === 'B')
-      if (bTierIndex >= 0) {
-        tierData[bTierIndex].items.push(...unassignedItems)
-      }
-    }
-
-    return (
-      <div className="space-y-6">
-        {tierData.map(({ tier, items }) => {
-          const hasItems = items.length > 0
-          
-          return (
-            <div 
-              key={tier.name} 
-              className={`relative overflow-hidden rounded-xl shadow-lg transition-all duration-300 hover:shadow-xl ${tier.bg} ${tier.border} border-2 ${
-                !hasItems ? 'min-h-[60px]' : ''
-              }`}
-            >
-              {/* Tier Label */}
-              <div className={`absolute left-0 top-0 bottom-0 w-20 bg-gradient-to-br ${tier.gradient} flex items-center justify-center`}>
-                <span className="text-4xl font-black text-white drop-shadow-lg">{tier.name}</span>
-              </div>
-              
-              {/* Items Container */}
-              <div className={`ml-20 ${hasItems ? 'p-6' : 'p-3'}`}>
-                {hasItems ? (
-                  <>
-                    <div className="flex items-center justify-between mb-4">
-                      <span className="text-sm font-medium text-gray-700">
-                        {items.length} item{items.length !== 1 ? 's' : ''}
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap gap-3">
-                      {items.map((item, index) => (
-                        <div
-                          key={item.id}
-                          className="group relative bg-white rounded-lg shadow-md hover:shadow-lg transition-all duration-200 hover:-translate-y-1 overflow-hidden"
-                          style={{
-                            animationDelay: `${index * 50}ms`,
-                            animation: 'fadeInUp 0.5s ease-out forwards'
-                          }}
-                        >
-                          <div className="px-4 py-2.5 flex items-center justify-between gap-2">
-                            <span>{renderItem(item, 'small')}</span>
-                            <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
-                              {(item.tier_mu || 2.5).toFixed(1)}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <div className="flex items-center justify-center h-6">
-                    <span className="text-gray-400 text-sm italic">No items yet</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          )
-        })}
-        
-      </div>
-    )
-  }
-
-  function renderSingleAxis() {
-    if (!chart) return null
-
-    const sortedItems = [...chart.items].sort((a, b) => 
-      (b.x_mu || b.r_x || 1000) - (a.x_mu || a.r_x || 1000)
-    )
-    
-    // Parse axis labels
-    const axisLabels = chart.x_label?.split(' → ') || ['Low', 'High']
-
-    return (
-      <div className="space-y-6">
-        <div className="text-center">
-          <div className="text-lg font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-            {axisLabels[0]} ← — — — — — — — — — → {axisLabels[1]}
-          </div>
-          <div className="text-sm text-gray-500">
-            Ranked from highest to lowest score
-          </div>
-          <div className="mt-2 text-xs text-gray-400">
-            Colors show relative performance: <span className="text-green-600">excellent</span> • <span className="text-blue-600">good</span> • <span className="text-amber-600">moderate</span> • <span className="text-red-600">low</span>
-          </div>
-        </div>
-        
-        <div className="space-y-3">
-          {sortedItems.map((item, index) => {
-            const score = item.x_mu || (item.r_x ? (item.r_x - 1000) / 10 : 0)
-            const position = ((score + 100) / 200) * 100 // Convert to 0-100%
-            
-            // Color gradient based on position
-            let bgGradient = 'from-gray-500 to-gray-600'
-            if (position > 75) bgGradient = 'from-green-500 to-emerald-600'
-            else if (position > 50) bgGradient = 'from-blue-500 to-blue-600'
-            else if (position > 25) bgGradient = 'from-amber-500 to-orange-600'
-            else bgGradient = 'from-red-500 to-red-600'
-
-            return (
-              <div 
-                key={item.id} 
-                className="relative group"
-                style={{
-                  animationDelay: `${index * 50}ms`,
-                  animation: 'slideInFromLeft 0.5s ease-out forwards'
-                }}
-              >
-                {/* Background bar */}
-                <div className="relative h-14 bg-gradient-to-r from-gray-50 to-gray-100 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-                  {/* Filled portion */}
-                  <div 
-                    className={`absolute top-0 left-0 h-full bg-gradient-to-r ${bgGradient} opacity-20 transition-all duration-500`}
-                    style={{ width: `${position}%` }}
-                  />
-                  
-                  {/* Item bubble */}
-                  <div
-                    className={`absolute top-1/2 transform -translate-y-1/2 transition-all duration-300 hover:scale-105`}
-                    style={{ left: `${Math.max(2, Math.min(88, position))}%` }}
-                  >
-                    <div className={`bg-gradient-to-br ${bgGradient} text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2`}>
-                      {renderItem(item, 'small')}
-                      <span className="text-xs opacity-75 font-medium">
-                        ({score.toFixed(0)})
-                      </span>
-                    </div>
-                  </div>
-                  
-                  {/* Position indicator line */}
-                  <div 
-                    className="absolute top-0 bottom-0 w-0.5 bg-black/30 transition-all duration-300"
-                    style={{ left: `${position}%` }}
-                  />
-                </div>
-                
-                {/* Hover detail */}
-                <div className="absolute -top-1 right-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                  <span className="text-xs font-medium text-gray-600 bg-white px-2 py-1 rounded shadow-sm">
-                    Rank #{index + 1} • Score: {score.toFixed(1)}
-                  </span>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </div>
-    )
-  }
-
-  // Seeded random for consistent positioning across page loads
-  function seededRandom(seed: string): number {
-    let hash = 0
-    for (let i = 0; i < seed.length; i++) {
-      const char = seed.charCodeAt(i)
-      hash = ((hash << 5) - hash) + char
-      hash = hash & hash
-    }
-    const x = Math.sin(hash) * 10000
-    return x - Math.floor(x)
-  }
-
-  function renderTwoAxis() {
-    if (!chart) return null
-
-    // Parse axis labels to get low/high values
-    const xLabels = chart.x_label?.split(' → ') || ['Low', 'High']
-    const yLabels = chart.y_label?.split(' → ') || ['Low', 'High']
-
-    // Prepare items with positions
     const itemsWithPositions = chart.items.map(item => {
-      // Check if item has meaningful vote data
-      const hasXData = item.x_mu !== null || (item.r_x !== undefined && Math.abs(item.r_x - 1000) > 5)
-      const hasYData = item.y_mu !== null || (item.r_y !== undefined && Math.abs(item.r_y - 1000) > 5)
-
-      let x: number, y: number
-
-      if (hasXData) {
-        x = item.x_mu !== null ? item.x_mu! : ((item.r_x || 1000) - 1000) / 5
-      } else {
-        // No vote data - use seeded random spread across the chart
-        x = (seededRandom(item.id + '_x') - 0.5) * 140 // Range: -70 to +70
-      }
-
-      if (hasYData) {
-        y = item.y_mu !== null ? item.y_mu! : ((item.r_y || 1000) - 1000) / 5
-      } else {
-        // No vote data - use seeded random spread
-        y = (seededRandom(item.id + '_y') - 0.5) * 140 // Range: -70 to +70
-      }
-
-      const xPos = ((x || 0) + 100) / 200 * 100
-      const yPos = 100 - ((y || 0) + 100) / 200 * 100
-      return { ...item, xPos, yPos, hasData: hasXData || hasYData }
+      const { xPos, yPos, hasData } = scoreToPosition(item)
+      return { ...item, xPos, yPos, hasData }
     })
+    const collisionInput = itemsWithPositions.map(i => ({ id: i.id, x: i.xPos, y: i.yPos, label: i.label }))
+    const adjusted = resolveCollisions(collisionInput, 100, 100, 22, 12)
+    const adjustedMap = new Map(adjusted.map(a => [a.id, a]))
+    return { itemsWithPositions, adjustedMap }
+  }, [chart])
 
-    // Collision resolution - use larger label dimensions for better separation
-    const adjustedItems = resolveCollisions(
-      itemsWithPositions.map(i => ({ id: i.id, x: i.xPos, y: i.yPos, label: i.label })),
-      100, 100, 18, 8  // Larger label dimensions = more aggressive separation
-    )
-
+  if (isLoading) {
     return (
-      <div className="relative w-full max-w-3xl mx-auto" style={{ aspectRatio: '1' }}>
-        {/* White background */}
-        <div className="absolute inset-0 bg-white" />
-
-        {/* Y-axis line with arrow */}
-        <div className="absolute left-1/2 top-8 bottom-8 w-0.5 bg-black -translate-x-1/2" />
-        <div className="absolute left-1/2 top-6 -translate-x-1/2 w-0 h-0 border-l-[6px] border-r-[6px] border-b-[10px] border-transparent border-b-black" />
-
-        {/* X-axis line with arrow */}
-        <div className="absolute top-1/2 left-8 right-8 h-0.5 bg-black -translate-y-1/2" />
-        <div className="absolute top-1/2 right-6 -translate-y-1/2 w-0 h-0 border-t-[6px] border-b-[6px] border-l-[10px] border-transparent border-l-black" />
-
-        {/* Axis labels - positioned outside the arrows */}
-        <div className="absolute -top-1 left-1/2 -translate-x-1/2 text-sm font-medium text-gray-800 text-center whitespace-nowrap">
-          {yLabels[1]}
-        </div>
-        <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 text-sm font-medium text-gray-800 text-center whitespace-nowrap">
-          {yLabels[0]}
-        </div>
-        <div className="absolute left-1 top-1/2 translate-y-2 text-sm font-medium text-gray-800 whitespace-nowrap">
-          {xLabels[0]}
-        </div>
-        <div className="absolute right-1 top-1/2 translate-y-2 text-sm font-medium text-gray-800 whitespace-nowrap">
-          {xLabels[1]}
-        </div>
-
-        {/* Items */}
-        <div className="absolute inset-12">
-          {itemsWithPositions.map((item) => {
-            const adjusted = adjustedItems.find(p => p.id === item.id)
-            const xPos = adjusted?.x ?? item.xPos
-            const yPos = adjusted?.y ?? item.yPos
-
-            return (
-              <div
-                key={item.id}
-                className={`group absolute transform -translate-x-1/2 -translate-y-1/2 cursor-pointer transition-all hover:scale-110 hover:z-20 ${
-                  !item.hasData ? 'opacity-60' : ''
-                }`}
-                style={{
-                  left: `${Math.max(5, Math.min(95, xPos))}%`,
-                  top: `${Math.max(5, Math.min(95, yPos))}%`,
-                }}
-              >
-                {item.image_url && showImages ? (
-                  <img
-                    src={item.image_url}
-                    alt={item.label}
-                    className="w-12 h-12 object-contain"
-                  />
-                ) : (
-                  <span className={`text-sm font-semibold px-2 py-1 rounded whitespace-nowrap ${
-                    item.hasData ? 'text-gray-900 bg-white/80' : 'text-gray-600 bg-gray-100/80 border border-dashed border-gray-300'
-                  }`}>
-                    {item.label}
-                  </span>
-                )}
-                {/* Tooltip on hover */}
-                <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-30">
-                  <div className="bg-gray-900 text-white text-xs px-2 py-1 rounded shadow-lg whitespace-nowrap">
-                    {item.label}
-                    {!item.hasData && <span className="text-gray-400 ml-1">(needs votes)</span>}
-                  </div>
-                  <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900" />
-                </div>
-              </div>
-            )
-          })}
-        </div>
-
-        {/* Message if most items need votes */}
-        {itemsWithPositions.filter(i => !i.hasData).length > itemsWithPositions.length / 2 && (
-          <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-xs text-gray-500 whitespace-nowrap">
-            Positions are preliminary — vote to see where items really land
-          </div>
-        )}
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-300 border-t-slate-900" />
       </div>
     )
   }
 
-  if (isLoading) return <div className="container mx-auto py-8 text-center">Loading...</div>
-  if (!chart) return <div className="container mx-auto py-8 text-center">Chart not found</div>
+  if (!chart) {
+    return (
+      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4">
+        <h2 className="text-xl font-semibold text-slate-900">Chart not found</h2>
+        <Link to="/"><Button variant="outline">Back to Home</Button></Link>
+      </div>
+    )
+  }
+
+  const xLabels = normalizeAxisPair(chart.x_label, 'Low', 'High')
+  const yLabels = normalizeAxisPair(chart.y_label, 'Low', 'High')
 
   return (
-    <div className="container mx-auto py-8 px-4 max-w-6xl">
-      <div className="mb-6 flex justify-between items-center">
-        <Link to="/">
-          <Button variant="ghost">
-            <Home className="w-4 h-4 mr-2" />
-            Home
-          </Button>
-        </Link>
-        <div className="flex gap-2 flex-wrap items-center">
-          <Link to={`/v/${id}?s=${shareKey}`}>
-            <Button>
-              Continue Voting
-            </Button>
+    <div className="mx-auto max-w-5xl px-4 py-6">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">{chart.title}</h1>
+          {chart.description && (
+            <p className="mt-1.5 text-sm text-slate-500">{chart.description}</p>
+          )}
+          <div className="mt-2 flex items-center gap-2 text-sm text-slate-500">
+            <span>{chart.items.length} items</span>
+            {chart.voting_active === false && (
+              <>
+                <span className="text-slate-300">&middot;</span>
+                <span className="text-amber-600">Voting paused</span>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Link to={`/v/${id}?s=${effectiveShareKey}`}>
+            <Button size="sm">Vote</Button>
           </Link>
-          
-          {/* Share Dropdown */}
-          <div className="relative group">
-            <Button variant="outline">
-              <Share2 className="w-4 h-4 mr-2" />
+
+          <div className="relative" data-share-menu>
+            <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); setShareMenuOpen(prev => !prev) }}>
+              <Share2 className="mr-2 h-4 w-4" />
               Share
             </Button>
-            <div className="absolute top-full left-0 mt-1 bg-white border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10 min-w-48">
-              <div className="p-1">
-                <button
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 rounded flex items-center gap-2"
-                  onClick={() => {
-                    const shareUrl = `/v/${id}?s=${shareKey}`
-                    navigator.clipboard.writeText(window.location.origin + shareUrl)
-                    // Could add toast notification here
-                  }}
-                >
-                  🗳️ Copy voting link
+            {shareMenuOpen && (
+              <div className="absolute right-0 top-full z-20 mt-1 w-52 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+                <button type="button" className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-50" onClick={() => copyLink('voting')}>
+                  <Copy className="h-3.5 w-3.5 text-slate-400" /> Copy voting link
                 </button>
-                <button
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 rounded flex items-center gap-2"
-                  onClick={() => {
-                    const resultsUrl = window.location.href
-                    navigator.clipboard.writeText(resultsUrl)
-                  }}
-                >
-                  🔗 Copy results link
+                <button type="button" className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-50" onClick={() => copyLink('results')}>
+                  <Copy className="h-3.5 w-3.5 text-slate-400" /> Copy results link
                 </button>
-                <button
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 rounded flex items-center gap-2"
-                  onClick={() => {
-                    const resultsUrl = window.location.href
-                    const text = `Check out these results: "${chart?.title}" on twoby`
-                    const shareUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(resultsUrl)}`
-                    window.open(shareUrl, '_blank')
-                  }}
-                >
-                  🐦 Tweet results
+                <div className="my-1 h-px bg-slate-100" />
+                <button type="button" className="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-50" onClick={() => openSocialShare('x')}>
+                  Share to X <ExternalLink className="h-3.5 w-3.5 text-slate-400" />
+                </button>
+                <button type="button" className="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-50" onClick={() => openSocialShare('reddit')}>
+                  Share to Reddit <ExternalLink className="h-3.5 w-3.5 text-slate-400" />
                 </button>
               </div>
-            </div>
-          </div>
-          
-          {/* Image Toggle - only show if there are images */}
-          {chart?.items.some(i => i.image_url) && (
-            <Button 
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowImages(!showImages)}
-              title={showImages ? "Show text only" : "Show images"}
-            >
-              {showImages ? '🖼️' : '📝'}
-            </Button>
-          )}
-        </div>
-      </div>
-      <Card>
-        <CardHeader>
-          <CardTitle>{chart.title}</CardTitle>
-          {chart.description && (
-            <div className="mt-2 text-gray-600">
-              {chart.description}
-            </div>
-          )}
-          <CardDescription>
-            Results • Mode: {chart.mode === 'tier' ? 'Tier List' : chart.mode === 'single_axis' ? 'Single Axis' : '2×2 Grid'}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {chart.mode === 'tier' && renderTierList()}
-          {chart.mode === 'single_axis' && renderSingleAxis()}
-          {chart.mode === 'two_axis' && renderTwoAxis()}
-          
-          {chart.creator_take && (
-            <div className="mt-8 p-4 bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg">
-              <div className="flex items-start gap-3">
-                <div className="text-2xl">💭</div>
-                <div>
-                  <div className="text-sm font-medium text-blue-900 mb-1">Creator's Take</div>
-                  <div className="text-gray-700 leading-relaxed">
-                    {chart.creator_take}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {chart.task_description && (
-            <div className="mt-8 p-4 bg-gradient-to-r from-green-50 to-teal-50 border border-green-200 rounded-lg">
-              <div className="flex items-start gap-3">
-                <div className="text-2xl">📋</div>
-                <div>
-                  <div className="text-sm font-medium text-green-900 mb-1">Task Description</div>
-                  <div className="text-gray-700 leading-relaxed">
-                    {chart.task_description}
-                  </div>
-                  {chart.task_image_url && (
-                    <img 
-                      src={chart.task_image_url} 
-                      alt="Task illustration" 
-                      className="mt-3 max-w-full h-auto rounded border"
-                    />
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Feedback Section */}
-          <div className="mt-8">
-            {!showFeedback ? (
-              <Button 
-                onClick={() => setShowFeedback(true)}
-                variant="outline"
-                className="w-full"
-              >
-                💬 How helpful was {chart.tool_name || 'the tool'}?
-              </Button>
-            ) : (
-              <Card className="border-orange-200 bg-orange-50">
-                <CardHeader className="pb-4">
-                  <CardTitle className="text-lg text-orange-900">
-                    How helpful was {chart.tool_name || 'the tool'}?
-                  </CardTitle>
-                  <CardDescription className="text-orange-700">
-                    Your feedback helps improve future recommendations
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {feedbackSubmitted ? (
-                    <div className="text-center py-4">
-                      <div className="text-2xl mb-2">✅</div>
-                      <div className="text-green-700 font-medium">Thank you for your feedback!</div>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium text-orange-900">Rating</label>
-                        <div className="flex gap-1">
-                          {[1, 2, 3, 4, 5].map((rating) => (
-                            <button
-                              key={rating}
-                              type="button"
-                              onClick={() => setToolHelpfulness(rating)}
-                              className={`p-2 rounded-full transition-colors ${
-                                toolHelpfulness >= rating 
-                                  ? 'text-yellow-500 bg-yellow-100' 
-                                  : 'text-gray-300 hover:text-yellow-400'
-                              }`}
-                            >
-                              <Star className="w-5 h-5" fill={toolHelpfulness >= rating ? 'currentColor' : 'none'} />
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      
-                      <div className="space-y-2">
-                        <label htmlFor="feedback-notes" className="text-sm font-medium text-orange-900">
-                          Additional Notes (optional)
-                        </label>
-                        <Textarea
-                          id="feedback-notes"
-                          value={freeResponse}
-                          onChange={(e) => setFreeResponse(e.target.value)}
-                          placeholder="Share more details about your experience..."
-                          className="min-h-[80px] text-sm border-orange-200 focus:border-orange-300"
-                          maxLength={2000}
-                        />
-                      </div>
-                      
-                      <div className="flex gap-2">
-                        <Button 
-                          onClick={submitFeedback}
-                          disabled={!toolHelpfulness}
-                          className="flex-1"
-                        >
-                          Submit Feedback
-                        </Button>
-                        <Button 
-                          onClick={() => setShowFeedback(false)}
-                          variant="outline"
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
             )}
           </div>
 
-          {/* Admin Section */}
-          {adminKey && (
-            <div className="mt-8 border-t border-gray-200 pt-8">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-semibold text-gray-900">Admin Panel</h3>
-                <div className="flex gap-2 flex-wrap">
-                  <Button
-                    onClick={() => setShowEditPanel(!showEditPanel)}
-                    variant={showEditPanel ? "default" : "outline"}
-                    size="sm"
-                  >
-                    <Pencil className="w-4 h-4 mr-1" />
-                    Edit Items
-                  </Button>
-                  <Button
-                    onClick={exportCSV}
-                    variant="outline"
-                    size="sm"
-                  >
-                    📊 Export CSV
-                  </Button>
-                  <Button
-                    onClick={() => setShowAdminFeedback(!showAdminFeedback)}
-                    variant="outline"
-                    size="sm"
-                  >
-                    {showAdminFeedback ? '👁️ Hide' : '👁️ View'} Feedback ({adminFeedback.length})
-                  </Button>
-                </div>
-              </div>
-
-              {/* Edit Items Panel */}
-              {showEditPanel && (
-                <Card className="mb-4 border-blue-200 bg-blue-50">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-md">Edit Items</CardTitle>
-                    <CardDescription>Add, remove, or rename items in this chart</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {/* Add new item */}
-                    <div className="flex gap-2">
-                      <Input
-                        value={newItemLabel}
-                        onChange={(e) => setNewItemLabel(e.target.value)}
-                        placeholder="New item name..."
-                        onKeyDown={(e) => e.key === 'Enter' && addItem()}
-                        className="bg-white"
-                      />
-                      <Button onClick={addItem} disabled={!newItemLabel.trim()}>
-                        <Plus className="w-4 h-4 mr-1" />
-                        Add
-                      </Button>
-                    </div>
-
-                    {/* Item list */}
-                    <div className="space-y-2 max-h-64 overflow-y-auto">
-                      {chart?.items.map((item) => (
-                        <div key={item.id} className="flex items-center gap-2 p-2 bg-white rounded border">
-                          {editingItemId === item.id ? (
-                            <>
-                              <Input
-                                value={editingLabel}
-                                onChange={(e) => setEditingLabel(e.target.value)}
-                                className="flex-1 h-8"
-                                autoFocus
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') updateItem(item.id, editingLabel)
-                                  if (e.key === 'Escape') setEditingItemId(null)
-                                }}
-                              />
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => updateItem(item.id, editingLabel)}
-                              >
-                                <Check className="w-4 h-4 text-green-600" />
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => setEditingItemId(null)}
-                              >
-                                <X className="w-4 h-4 text-gray-500" />
-                              </Button>
-                            </>
-                          ) : (
-                            <>
-                              <span className="flex-1 text-sm">{item.label}</span>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => {
-                                  setEditingItemId(item.id)
-                                  setEditingLabel(item.label)
-                                }}
-                              >
-                                <Pencil className="w-3 h-3" />
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => deleteItem(item.id)}
-                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </Button>
-                            </>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-
-                    <p className="text-xs text-gray-500">
-                      {chart?.items.length} items • Changes are saved immediately
-                    </p>
-                  </CardContent>
-                </Card>
-              )}
-
-              {showAdminFeedback && (
-                <Card className="bg-gray-50">
-                  <CardHeader className="pb-4">
-                    <CardTitle className="text-md">User Feedback</CardTitle>
-                    <CardDescription>
-                      Tool helpfulness ratings and free-response notes from users
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {adminFeedback.length === 0 ? (
-                      <p className="text-gray-500 text-center py-8">No feedback received yet</p>
-                    ) : (
-                      <div className="space-y-4">
-                        {adminFeedback.map((feedback, index) => (
-                          <div key={index} className="bg-white p-4 rounded-lg border border-gray-200">
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-medium">Tool Helpfulness:</span>
-                                <div className="flex">
-                                  {[1, 2, 3, 4, 5].map((star) => (
-                                    <Star 
-                                      key={star} 
-                                      className={`w-4 h-4 ${
-                                        feedback.tool_helpfulness >= star 
-                                          ? 'text-yellow-500 fill-current' 
-                                          : 'text-gray-300'
-                                      }`} 
-                                    />
-                                  ))}
-                                </div>
-                                <span className="text-sm text-gray-600">
-                                  ({feedback.tool_helpfulness || 'No rating'}/5)
-                                </span>
-                              </div>
-                              <span className="text-xs text-gray-500">
-                                {new Date(feedback.created_at).toLocaleDateString()}
-                              </span>
-                            </div>
-                            {feedback.free_response && (
-                              <div className="mt-2">
-                                <span className="text-sm font-medium text-gray-700">Notes:</span>
-                                <p className="text-sm text-gray-600 mt-1 bg-gray-50 p-2 rounded">
-                                  {feedback.free_response}
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                        
-                        {adminFeedback.length > 0 && (
-                          <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-                            <div className="text-sm font-medium text-blue-900">Summary</div>
-                            <div className="text-sm text-blue-700 mt-1">
-                              Average rating: {(adminFeedback.reduce((sum, f) => sum + (f.tool_helpfulness || 0), 0) / adminFeedback.filter(f => f.tool_helpfulness).length).toFixed(1)} / 5
-                            </div>
-                            <div className="text-sm text-blue-700">
-                              {adminFeedback.filter(f => f.free_response && f.free_response.trim()).length} detailed responses
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              )}
-            </div>
+          {hasImages && (
+            <button type="button" onClick={() => setShowImages(!showImages)} className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${showImages ? 'border-slate-300 bg-slate-100 text-slate-700' : 'border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
+              {showImages ? 'Hide images' : 'Show images'}
+            </button>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
+
+      {copiedLink && (
+        <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
+          Copied {copiedLink} link
+        </div>
+      )}
+
+      {twoAxisData && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+          <div className="relative mx-auto w-full max-w-4xl" style={{ aspectRatio: '1' }}>
+            <div className="absolute inset-0 rounded-2xl bg-white" />
+
+            <div className="absolute bottom-6 left-1/2 top-6 w-px -translate-x-1/2 bg-slate-900" />
+            <div className="absolute left-1/2 top-4 -translate-x-1/2 border-b-[10px] border-l-[6px] border-r-[6px] border-transparent border-b-slate-900" />
+
+            <div className="absolute left-6 right-6 top-1/2 h-px -translate-y-1/2 bg-slate-900" />
+            <div className="absolute right-4 top-1/2 -translate-y-1/2 border-l-[10px] border-b-[6px] border-t-[6px] border-transparent border-l-slate-900" />
+
+            <div className="absolute -top-1 left-1/2 -translate-x-1/2 whitespace-nowrap text-[13px] font-semibold text-slate-700">{yLabels[1]}</div>
+            <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 whitespace-nowrap text-[13px] font-semibold text-slate-700">{yLabels[0]}</div>
+            <div className="absolute left-1 top-1/2 translate-y-2 whitespace-nowrap text-[13px] font-semibold text-slate-700">{xLabels[0]}</div>
+            <div className="absolute right-1 top-1/2 translate-y-2 whitespace-nowrap text-[13px] font-semibold text-slate-700">{xLabels[1]}</div>
+
+            <div className="absolute inset-10">
+              {twoAxisData.itemsWithPositions.map((item) => {
+                const adjusted = twoAxisData.adjustedMap.get(item.id)
+                const xPos = adjusted?.x ?? item.xPos
+                const yPos = adjusted?.y ?? item.yPos
+
+                return (
+                  <div
+                    key={item.id}
+                    className={`group absolute -translate-x-1/2 -translate-y-1/2 transition-all hover:z-20 hover:scale-110 ${!item.hasData ? 'opacity-60' : ''}`}
+                    style={{ left: `${Math.max(5, Math.min(95, xPos))}%`, top: `${Math.max(5, Math.min(95, yPos))}%` }}
+                  >
+                    {item.image_url && showImages ? (
+                      <div className="flex flex-col items-center">
+                        <div className="overflow-hidden rounded-md border border-slate-200/80 bg-white/90 shadow-sm" style={imageFrameSize(item.id)}>
+                          <img src={item.image_url} alt={item.label} className="h-full w-full object-cover" />
+                        </div>
+                        <span className="mt-1 max-w-[118px] truncate rounded bg-white/90 px-1.5 py-0.5 text-[11px] font-semibold text-slate-700 shadow-sm">{item.label}</span>
+                      </div>
+                    ) : (
+                      <span className={`whitespace-nowrap rounded px-2.5 py-1.5 text-sm font-semibold shadow-sm ${item.hasData ? 'bg-white/80 text-slate-900' : 'border border-dashed border-slate-300 bg-slate-100/80 text-slate-600'}`}>
+                        {item.label}
+                      </span>
+                    )}
+                    <div className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 -translate-x-1/2 opacity-0 transition-opacity group-hover:opacity-100">
+                      <div className="whitespace-nowrap rounded bg-slate-900 px-2 py-1 text-xs text-white shadow-lg">
+                        {item.label}{!item.hasData && <span className="ml-1 text-slate-400">(needs votes)</span>}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            {twoAxisData.itemsWithPositions.filter(i => !i.hasData).length > twoAxisData.itemsWithPositions.length / 2 && (
+              <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 whitespace-nowrap text-xs text-slate-500">
+                Vote to see where items land
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {chart.creator_take && (
+        <div className="mt-6 rounded-xl border border-slate-200 bg-white p-4">
+          <div className="text-sm font-medium text-slate-900">Creator's take</div>
+          <div className="mt-1 text-sm text-slate-600">{chart.creator_take}</div>
+        </div>
+      )}
+
+      {adminKey && (
+        <div className="mt-8 border-t border-slate-200 pt-8">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <h3 className="text-lg font-semibold text-slate-900">Admin</h3>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={toggleVotingPause} variant="outline" size="sm" disabled={isUpdatingVotingState}>
+                {chart.is_voting_paused ? <PlayCircle className="mr-1.5 h-4 w-4" /> : <PauseCircle className="mr-1.5 h-4 w-4" />}
+                {chart.is_voting_paused ? 'Resume' : 'Pause'}
+              </Button>
+              <Button onClick={() => setShowEditPanel(!showEditPanel)} variant={showEditPanel ? 'default' : 'outline'} size="sm">
+                <Pencil className="mr-1.5 h-4 w-4" /> Edit
+              </Button>
+              <Button onClick={exportCSV} variant="outline" size="sm">
+                <Download className="mr-1.5 h-4 w-4" /> CSV
+              </Button>
+            </div>
+          </div>
+
+          {showEditPanel && (
+            <Card className="mb-4 border-blue-200 bg-blue-50">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Edit Items</CardTitle>
+                <CardDescription>Add, remove, or rename items</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex gap-2">
+                  <Input value={newItemLabel} onChange={(e) => setNewItemLabel(e.target.value)} placeholder="New item..." onKeyDown={(e) => e.key === 'Enter' && addItem()} className="bg-white" />
+                  <Button onClick={addItem} disabled={!newItemLabel.trim()}><Plus className="mr-1 h-4 w-4" /> Add</Button>
+                </div>
+                <div className="max-h-64 space-y-2 overflow-y-auto">
+                  {chart.items.map((item) => (
+                    <div key={item.id} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2">
+                      {editingItemId === item.id ? (
+                        <>
+                          <Input value={editingLabel} onChange={(e) => setEditingLabel(e.target.value)} className="h-8 flex-1" autoFocus onKeyDown={(e) => { if (e.key === 'Enter') updateItem(item.id, editingLabel); if (e.key === 'Escape') setEditingItemId(null) }} />
+                          <Button size="sm" variant="ghost" onClick={() => updateItem(item.id, editingLabel)}><Check className="h-4 w-4 text-emerald-600" /></Button>
+                          <Button size="sm" variant="ghost" onClick={() => setEditingItemId(null)}><X className="h-4 w-4 text-slate-500" /></Button>
+                        </>
+                      ) : (
+                        <>
+                          <span className="flex-1 text-sm">{item.label}</span>
+                          <Button size="sm" variant="ghost" onClick={() => { setEditingItemId(item.id); setEditingLabel(item.label) }}><Pencil className="h-3 w-3" /></Button>
+                          <Button size="sm" variant="ghost" onClick={() => deleteItem(item.id)} className="text-red-600 hover:bg-red-50 hover:text-red-700"><Trash2 className="h-3 w-3" /></Button>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
     </div>
   )
 }
