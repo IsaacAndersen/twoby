@@ -32,6 +32,10 @@ function generateMemorableCode(title: string, id: string): string {
 /**
  * Create a shortened URL using our backend service
  */
+function getFullUrl(path: string, params: URLSearchParams): string {
+  return `${window.location.origin}${path}?${params.toString()}`
+}
+
 export async function createShortUrl(path: string, params: URLSearchParams, title?: string): Promise<string> {
   const fullUrl = getFullUrl(path, params)
   
