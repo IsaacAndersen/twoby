@@ -651,6 +651,72 @@ def _score_to_xy(item_row: dict) -> tuple[float, float, bool]:
     y = max(-100.0, min(100.0, y))
     return x, y, bool(has_x or has_y)
 
+def _quantile_positions(items: list[dict]) -> list[dict]:
+    """Apply quantile spreading + confidence gravity to item positions.
+    Returns items with 'x_pct' and 'y_pct' fields (0-100)."""
+    CONFIDENCE_THRESHOLD = 8
+
+    x_scored = []
+    y_scored = []
+    meta = {}
+    for it in items:
+        x, y, has_data = _score_to_xy(it)
+        n_x = int(it.get("n_x") or 0)
+        n_y = int(it.get("n_y") or 0)
+        has_x = it.get("x_mu") is not None or (it.get("r_x") is not None and abs(float(it.get("r_x", 1000)) - 1000) > 5)
+        has_y = it.get("y_mu") is not None or (it.get("r_y") is not None and abs(float(it.get("r_y", 1000)) - 1000) > 5)
+        meta[it["id"]] = {"x": x, "y": y, "has_x": has_x, "has_y": has_y, "n_x": n_x, "n_y": n_y, "has_data": has_data}
+        if has_x:
+            x_scored.append((it["id"], x))
+        if has_y:
+            y_scored.append((it["id"], y))
+
+    def quantiles(scored):
+        if len(scored) <= 3:
+            return {sid: ((val + 100) / 200) * 100 for sid, val in scored}
+        sorted_s = sorted(scored, key=lambda s: s[1])
+        result = {}
+        for i, (sid, _) in enumerate(sorted_s):
+            q = i / (len(sorted_s) - 1) if len(sorted_s) > 1 else 0.5
+            result[sid] = 5 + q * 90
+        return result
+
+    x_q = quantiles(x_scored)
+    y_q = quantiles(y_scored)
+
+    result = []
+    for it in items:
+        m = meta[it["id"]]
+        iid = it["id"]
+
+        if m["has_x"] and iid in x_q:
+            xp = x_q[iid]
+        else:
+            random.seed(iid + "-x")
+            raw = random.random()
+            xp = raw * 40 + 5 if raw < 0.5 else raw * 40 + 55
+
+        if m["has_y"] and iid in y_q:
+            yp = 100 - y_q[iid]  # invert Y for screen coords
+        else:
+            random.seed(iid + "-y")
+            raw = random.random()
+            yp = raw * 40 + 5 if raw < 0.5 else raw * 40 + 55
+
+        n_votes = max(m["n_x"], m["n_y"])
+        confidence = min(1.0, n_votes / CONFIDENCE_THRESHOLD)
+
+        if m["has_data"] and confidence < 1:
+            qcx = 25 if xp < 50 else 75
+            qcy = 25 if yp < 50 else 75
+            xp = qcx + (xp - qcx) * confidence
+            yp = qcy + (yp - qcy) * confidence
+
+        result.append({**it, "x_pct": xp, "y_pct": yp, "has_data": m["has_data"], "confidence": confidence})
+
+    return result
+
+
 def _render_chart_og_png(
     *,
     chart: dict,
@@ -660,83 +726,45 @@ def _render_chart_og_png(
     footer_text: str,
 ) -> bytes:
     width, height = 1200, 630
-    img = PILImage.new("RGB", (width, height), (10, 15, 28))
-
-    # Background gradient
-    top = (11, 18, 32)
-    bottom = (17, 24, 39)
-    for y in range(height):
-        t = y / (height - 1)
-        r = int(top[0] * (1 - t) + bottom[0] * t)
-        g = int(top[1] * (1 - t) + bottom[1] * t)
-        b = int(top[2] * (1 - t) + bottom[2] * t)
-        img.paste((r, g, b), (0, y, width, y + 1))
-
+    img = PILImage.new("RGB", (width, height), (255, 255, 255))
     draw = ImageDraw.Draw(img)
-    title_font = _load_font(56, bold=True)
-    subtitle_font = _load_font(24, bold=False)
-    label_font = _load_font(22, bold=True)
-    small_font = _load_font(18, bold=False)
 
-    margin = 64
-    accent = (96, 165, 250)  # blue-400
-    soft_white = (245, 247, 255)
+    title_font = _load_font(28, bold=True)
+    label_font = _load_font(18, bold=True)
+    item_font = _load_font(16, bold=True)
+    small_font = _load_font(12, bold=False)
+    black = (28, 25, 23)       # stone-900
+    gray400 = (168, 162, 158)  # stone-400
+    gray300 = (214, 211, 209)  # stone-300
 
     title = (chart.get("title") or "twoby").strip()
     mode = chart.get("mode") or "two_axis"
     x_label = chart.get("x_label") or "Low → High"
     y_label = chart.get("y_label") or "Low → High"
-    max_title_w = width - margin * 2 - (520 if mode == "two_axis" else 80)
-    while draw.textlength(title, font=title_font) > max_title_w and len(title) > 12:
-        title = title[:-2].rstrip() + "…"
-
-    header_tag = "Vote" if og_type == "vote" else "Results"
-    tag_text = f"{header_tag} • 2×2"
-    if mode != "two_axis":
-        tag_text = f"{header_tag}"
-
-    draw.rounded_rectangle(
-        (margin, 48, margin + 190, 88),
-        radius=18,
-        fill=(30, 41, 59),
-        outline=(51, 65, 85),
-        width=2,
-    )
-    draw.text((margin + 18, 56), "twoby", fill=soft_white, font=label_font)
-
-    draw.text((margin, 118), title, fill=soft_white, font=title_font)
-
-    meta = f"{tag_text} • {len(items)} items • {vote_count} votes"
-    draw.text((margin, 190), meta, fill=(203, 213, 225), font=subtitle_font)
 
     if mode == "two_axis":
-        grid_size = 500
-        grid_left = width - margin - grid_size + 14
-        grid_top = 70
-        grid_right = grid_left + grid_size
-        grid_bottom = grid_top + grid_size
+        margin = 60
+        chart_size = min(width, height) - margin * 2
+        cx = width // 2
+        cy = height // 2
+        left = cx - chart_size // 2
+        top = cy - chart_size // 2
+        right = left + chart_size
+        bottom = top + chart_size
+        mid_x = (left + right) // 2
+        mid_y = (top + bottom) // 2
 
-        draw.rounded_rectangle(
-            (grid_left - 10, grid_top - 10, grid_right + 10, grid_bottom + 10),
-            radius=30,
-            fill=(13, 22, 40),
-            outline=(66, 84, 112),
-            width=2,
-        )
+        # Axes
+        draw.line((mid_x, top, mid_x, bottom), fill=black, width=2)
+        draw.line((left, mid_y, right, mid_y), fill=black, width=2)
 
-        # Quadrant tint with subtle contrast so preview resembles the live board.
-        tint_a = (27, 39, 58)
-        tint_b = (24, 34, 52)
-        mid_x = (grid_left + grid_right) // 2
-        mid_y = (grid_top + grid_bottom) // 2
-        draw.rectangle((grid_left, grid_top, mid_x, mid_y), fill=tint_a)
-        draw.rectangle((mid_x, grid_top, grid_right, mid_y), fill=tint_b)
-        draw.rectangle((grid_left, mid_y, mid_x, grid_bottom), fill=tint_b)
-        draw.rectangle((mid_x, mid_y, grid_right, grid_bottom), fill=tint_a)
+        # Arrow tips
+        draw.polygon([(mid_x - 5, top + 8), (mid_x + 5, top + 8), (mid_x, top)], fill=black)
+        draw.polygon([(mid_x - 5, bottom - 8), (mid_x + 5, bottom - 8), (mid_x, bottom)], fill=black)
+        draw.polygon([(right - 8, mid_y - 5), (right - 8, mid_y + 5), (right, mid_y)], fill=black)
+        draw.polygon([(left + 8, mid_y - 5), (left + 8, mid_y + 5), (left, mid_y)], fill=black)
 
-        draw.line((mid_x, grid_top, mid_x, grid_bottom), fill=(82, 102, 132), width=3)
-        draw.line((grid_left, mid_y, grid_right, mid_y), fill=(82, 102, 132), width=3)
-
+        # Axis labels
         x_parts = [p.strip() for p in x_label.split("→")]
         y_parts = [p.strip() for p in y_label.split("→")]
         x_low = x_parts[0] if len(x_parts) > 0 else "Low"
@@ -744,87 +772,58 @@ def _render_chart_og_png(
         y_low = y_parts[0] if len(y_parts) > 0 else "Low"
         y_high = y_parts[1] if len(y_parts) > 1 else "High"
 
-        draw.text((grid_left, grid_bottom + 16), x_low, fill=(203, 213, 225), font=small_font)
-        x_high_w = draw.textlength(x_high, font=small_font)
-        draw.text((grid_right - x_high_w, grid_bottom + 16), x_high, fill=(203, 213, 225), font=small_font)
+        draw.text((left, mid_y + 6), x_low, fill=black, font=label_font)
+        xhw = draw.textlength(x_high, font=label_font)
+        draw.text((right - xhw, mid_y + 6), x_high, fill=black, font=label_font)
+        yhw = draw.textlength(y_high, font=label_font)
+        draw.text((mid_x - yhw / 2, top - 24), y_high, fill=black, font=label_font)
+        ylw = draw.textlength(y_low, font=label_font)
+        draw.text((mid_x - ylw / 2, bottom + 8), y_low, fill=black, font=label_font)
 
-        y_high_w = draw.textlength(y_high, font=small_font)
-        draw.text((mid_x - y_high_w / 2, grid_top - 30), y_high, fill=(203, 213, 225), font=small_font)
-        y_low_w = draw.textlength(y_low, font=small_font)
-        draw.text((mid_x - y_low_w / 2, grid_bottom + 40), y_low, fill=(203, 213, 225), font=small_font)
+        # Place items with quantile spreading
+        positioned = _quantile_positions(items)
+        inner_left = left + 30
+        inner_top = top + 20
+        inner_w = chart_size - 60
+        inner_h = chart_size - 40
 
-        buckets: dict[str, list[str]] = {"tl": [], "tr": [], "bl": [], "br": []}
-        has_any_data = False
-        for it in items:
-            x, y, has_data = _score_to_xy(it)
-            has_any_data = has_any_data or has_data
-            if x < 0 and y >= 0:
-                buckets["tl"].append(it["label"])
-            elif x >= 0 and y >= 0:
-                buckets["tr"].append(it["label"])
-            elif x < 0 and y < 0:
-                buckets["bl"].append(it["label"])
+        for it in positioned:
+            px = inner_left + (it["x_pct"] / 100) * inner_w
+            py = inner_top + (it["y_pct"] / 100) * inner_h
+            label_text = it["label"]
+            if len(label_text) > 24:
+                label_text = label_text[:23] + "…"
+
+            conf = it.get("confidence", 0)
+            if not it["has_data"]:
+                color = gray300
+            elif conf < 0.5:
+                color = gray400
             else:
-                buckets["br"].append(it["label"])
+                color = black
 
-        def draw_bucket(key: str, x0: int, y0: int):
-            labels = buckets[key]
-            max_labels = 4
-            shown = labels[:max_labels]
-            chip_w = 220
-            for idx, text in enumerate(shown):
-                display = text if len(text) <= 20 else text[:19] + "…"
-                ty = y0 + idx * 26
-                draw.rounded_rectangle(
-                    (x0, ty, x0 + chip_w, ty + 22),
-                    radius=10,
-                    fill=(33, 47, 69),
-                    outline=(66, 84, 112),
-                    width=1,
-                )
-                draw.text((x0 + 9, ty + 3), display, fill=soft_white, font=small_font)
-            if len(labels) > max_labels:
-                more = f"+{len(labels) - max_labels} more"
-                draw.text((x0 + 4, y0 + max_labels * 26 + 2), more, fill=(148, 163, 184), font=small_font)
+            tw = draw.textlength(label_text, font=item_font)
+            draw.text((px - tw / 2, py - 8), label_text, fill=color, font=item_font)
 
-        pad = 12
-        draw_bucket("tl", grid_left + pad, grid_top + pad)
-        draw_bucket("tr", mid_x + pad, grid_top + pad)
-        draw_bucket("bl", grid_left + pad, mid_y + pad)
-        draw_bucket("br", mid_x + pad, mid_y + pad)
+        # Title top-left
+        draw.text((12, 8), title, fill=black, font=title_font)
+        meta = f"{vote_count} votes"
+        draw.text((12, 38), meta, fill=gray400, font=small_font)
 
-        if not has_any_data:
-            hint = "Vote to place items"
-            hint_w = draw.textlength(hint, font=small_font)
-            draw.text((mid_x - hint_w / 2, grid_top + grid_size - 34), hint, fill=(148, 163, 184), font=small_font)
+        # Branding bottom-right
+        bw = draw.textlength("twoby", font=small_font)
+        draw.text((width - bw - 12, height - 20), "twoby", fill=gray300, font=small_font)
 
-        draw.ellipse((grid_right - 34, grid_top - 34, grid_right - 8, grid_top - 8), fill=accent)
     else:
-        box_top = 270
-        box_left = margin
-        box_right = width - margin
-        box_bottom = height - 92
-        draw.rounded_rectangle(
-            (box_left, box_top, box_right, box_bottom),
-            radius=28,
-            fill=(15, 23, 42),
-            outline=(51, 65, 85),
-            width=2,
-        )
-
+        # Non-two_axis: simple list layout with white bg
+        draw.text((40, 20), title, fill=black, font=title_font)
         shown = [it["label"] for it in items[:10]]
-        col_w = (box_right - box_left - 40) // 2
         for idx, label in enumerate(shown):
-            col = idx % 2
-            row = idx // 2
-            x0 = box_left + 20 + col * col_w
-            y0 = box_top + 20 + row * 34
-            display = label if len(label) <= 28 else label[:27] + "…"
-            draw.text((x0, y0), f"• {display}", fill=soft_white, font=small_font)
-
-    draw.text((margin, height - 54), "twoby", fill=(148, 163, 184), font=small_font)
-    footer_w = draw.textlength(footer_text, font=small_font)
-    draw.text((width - margin - footer_w, height - 54), footer_text, fill=(148, 163, 184), font=small_font)
+            y0 = 60 + idx * 28
+            display = label if len(label) <= 40 else label[:39] + "…"
+            draw.text((50, y0), f"• {display}", fill=black, font=item_font)
+        bw = draw.textlength("twoby", font=small_font)
+        draw.text((width - bw - 12, height - 20), "twoby", fill=gray300, font=small_font)
 
     out = io.BytesIO()
     img.save(out, format="PNG", optimize=True)
@@ -1877,7 +1876,7 @@ def get_chart_og(
 
         cur.execute(
             """SELECT i.id, i.label, i.image_url,
-                      sc.r_x, sc.r_y, sc.x_mu, sc.y_mu, sc.tier_mu
+                      sc.r_x, sc.r_y, sc.x_mu, sc.y_mu, sc.tier_mu, sc.n_x, sc.n_y
             FROM items i
             LEFT JOIN scores sc ON sc.chart_id = i.chart_id AND sc.item_id = i.id
             WHERE i.chart_id = ? AND i.status = 'active'
