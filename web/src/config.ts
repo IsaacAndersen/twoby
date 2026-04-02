@@ -1,1 +1,1 @@
-export const API_BASE = import.meta.env.VITE_API_URL || 'https://twobyapi.ike.rs'
+export const API_BASE = import.meta.env.VITE_API_URL || ''

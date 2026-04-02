@@ -1,3 +1,12 @@
+# Stage 1: Build frontend
+FROM node:20-slim AS frontend
+WORKDIR /web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web/ ./
+RUN npm run build
+
+# Stage 2: Python API + built frontend
 FROM python:3.12-slim
 
 # Install system dependencies for Pillow and psycopg2
@@ -17,6 +26,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY api/ ./
+
+# Copy built frontend into static/
+COPY --from=frontend /web/dist ./static
 
 EXPOSE 8080
 

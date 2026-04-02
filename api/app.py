@@ -14,9 +14,12 @@ from contextlib import asynccontextmanager
 from urllib.parse import urlparse, parse_qs, urlencode
 from urllib import request as urllib_request, error as urllib_error
 
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, Response, FileResponse
+from fastapi.staticfiles import StaticFiles
 from argon2 import PasswordHasher
 from PIL import Image as PILImage, ImageDraw, ImageFont
 
@@ -42,8 +45,8 @@ app = FastAPI(title="twoby", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://twoby.vercel.app", "https://twoby.ike.rs", "http://localhost:5173", "http://localhost:5174"],
-    allow_origin_regex=r"https://.*\.vercel\.app",
+    allow_origins=["https://twoby.vercel.app", "https://twoby.ike.rs", "https://twoby-production.up.railway.app", "http://localhost:5173", "http://localhost:5174", "http://localhost:8080"],
+    allow_origin_regex=r"https://.*\.(vercel\.app|up\.railway\.app)",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -2106,3 +2109,22 @@ def export_chart_csv(chart_id: str, k: str = Query(..., description="Admin key")
 @app.get("/health")
 def health_check():
     return {"status": "healthy", "service": "twoby"}
+
+# Serve frontend static files (built into /app/static by Dockerfile)
+_STATIC_DIR = Path(__file__).parent / "static"
+if _STATIC_DIR.is_dir():
+    _INDEX_HTML = _STATIC_DIR / "index.html"
+
+    # Mount assets with caching
+    if (_STATIC_DIR / "assets").is_dir():
+        app.mount("/assets", StaticFiles(directory=str(_STATIC_DIR / "assets")), name="assets")
+
+    # SPA fallback: serve index.html for any non-API, non-static route
+    @app.get("/{path:path}")
+    async def spa_fallback(path: str):
+        # Try to serve a static file first
+        static_file = _STATIC_DIR / path
+        if static_file.is_file() and ".." not in path:
+            return FileResponse(str(static_file))
+        # Fall back to index.html for SPA routing
+        return FileResponse(str(_INDEX_HTML))
