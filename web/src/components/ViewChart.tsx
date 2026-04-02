@@ -3,13 +3,12 @@ import { useParams, useSearchParams, Link } from 'react-router-dom'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Share2, Plus, Trash2, Pencil, X, Check, PauseCircle, PlayCircle, ExternalLink, Copy, Download } from 'lucide-react'
+import { Share2, Plus, Trash2, Pencil, X, Check, PauseCircle, PlayCircle, Download } from 'lucide-react'
 import { useMetaTags } from '@/hooks/useMetaTags'
-import { createShortUrl } from '@/utils/urlShortening'
-import { buildShareTargets } from '@/utils/shareLinks'
 import { API_BASE } from '@/config'
 import type { ChartData } from '@/types'
 import ChartBoard from './ChartBoard'
+import ShareOverlay from './ShareOverlay'
 
 export default function ViewChart() {
   const { id } = useParams<{ id: string }>()
@@ -23,21 +22,9 @@ export default function ViewChart() {
   const [editingItemId, setEditingItemId] = useState<string | null>(null)
   const [editingLabel, setEditingLabel] = useState('')
   const [isUpdatingVotingState, setIsUpdatingVotingState] = useState(false)
-  const [shareMenuOpen, setShareMenuOpen] = useState(false)
-  const [copiedLink, setCopiedLink] = useState<string | null>(null)
+  const [showShareOverlay, setShowShareOverlay] = useState(false)
 
   const effectiveShareKey = shareKey || 'public'
-
-  useEffect(() => {
-    if (!shareMenuOpen) return
-    function onDocClick(e: MouseEvent) {
-      if (!(e.target as HTMLElement)?.closest('[data-share-menu]')) {
-        setShareMenuOpen(false)
-      }
-    }
-    document.addEventListener('click', onDocClick)
-    return () => document.removeEventListener('click', onDocClick)
-  }, [shareMenuOpen])
 
   async function addItem() {
     if (!id || !adminKey || !newItemLabel.trim()) return
@@ -81,33 +68,6 @@ export default function ViewChart() {
     } catch (error) {
       console.error('Failed to update item:', error)
     }
-  }
-
-  async function copyLink(type: 'results' | 'voting') {
-    const path = type === 'voting' ? `/v/${id}` : `/c/${id}`
-    try {
-      const params = new URLSearchParams()
-      params.set('s', effectiveShareKey)
-      const shortUrl = await createShortUrl(path, params, chart?.title)
-      await navigator.clipboard.writeText(shortUrl)
-    } catch {
-      await navigator.clipboard.writeText(`${window.location.origin}${path}?s=${effectiveShareKey}`)
-    }
-    setCopiedLink(type)
-    setShareMenuOpen(false)
-    setTimeout(() => setCopiedLink(null), 1500)
-  }
-
-  async function openSocialShare(target: 'x' | 'reddit' | 'facebook') {
-    let url = `${window.location.origin}/c/${id}?s=${effectiveShareKey}`
-    try {
-      const params = new URLSearchParams()
-      params.set('s', effectiveShareKey)
-      url = await createShortUrl(`/c/${id}`, params, chart?.title)
-    } catch { /* fallback */ }
-    const links = buildShareTargets(url, `${chart?.title || 'Chart'} on twoby`)
-    window.open(links[target], '_blank', 'noopener,noreferrer')
-    setShareMenuOpen(false)
   }
 
   async function toggleVotingPause() {
@@ -215,38 +175,13 @@ export default function ViewChart() {
             <Button size="sm">Vote</Button>
           </Link>
 
-          <div className="relative" data-share-menu>
-            <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); setShareMenuOpen(prev => !prev) }}>
-              <Share2 className="mr-2 h-4 w-4" />
-              Share
-            </Button>
-            {shareMenuOpen && (
-              <div className="absolute right-0 top-full z-20 mt-1 w-52 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
-                <button type="button" className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-50" onClick={() => copyLink('voting')}>
-                  <Copy className="h-3.5 w-3.5 text-slate-400" /> Copy voting link
-                </button>
-                <button type="button" className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-50" onClick={() => copyLink('results')}>
-                  <Copy className="h-3.5 w-3.5 text-slate-400" /> Copy results link
-                </button>
-                <div className="my-1 h-px bg-slate-100" />
-                <button type="button" className="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-50" onClick={() => openSocialShare('x')}>
-                  Share to X <ExternalLink className="h-3.5 w-3.5 text-slate-400" />
-                </button>
-                <button type="button" className="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-50" onClick={() => openSocialShare('reddit')}>
-                  Share to Reddit <ExternalLink className="h-3.5 w-3.5 text-slate-400" />
-                </button>
-              </div>
-            )}
-          </div>
+          <Button variant="outline" size="sm" onClick={() => setShowShareOverlay(true)}>
+            <Share2 className="mr-2 h-4 w-4" />
+            Share
+          </Button>
 
         </div>
       </div>
-
-      {copiedLink && (
-        <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
-          Copied {copiedLink} link
-        </div>
-      )}
 
       {chart.mode === 'two_axis' && (
         <ChartBoard
@@ -320,6 +255,19 @@ export default function ViewChart() {
             </Card>
           )}
         </div>
+      )}
+
+      {showShareOverlay && chart && (
+        <ShareOverlay
+          chartId={id!}
+          title={chart.title}
+          xLabel={chart.x_label}
+          yLabel={chart.y_label}
+          items={chart.items}
+          voteCount={0}
+          shareKey={effectiveShareKey}
+          onClose={() => setShowShareOverlay(false)}
+        />
       )}
     </div>
   )
