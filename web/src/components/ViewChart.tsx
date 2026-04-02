@@ -1,18 +1,15 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useSearchParams, Link } from 'react-router-dom'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Share2, Plus, Trash2, Pencil, X, Check, PauseCircle, PlayCircle, ExternalLink, Copy, Download } from 'lucide-react'
 import { useMetaTags } from '@/hooks/useMetaTags'
-import { resolveCollisions } from '@/utils/collision'
 import { createShortUrl } from '@/utils/urlShortening'
 import { buildShareTargets } from '@/utils/shareLinks'
-import { imageFrameSize, normalizeAxisPair } from '@/utils/chart'
-import { placeItems } from '@/utils/placement'
 import { API_BASE } from '@/config'
 import type { ChartData } from '@/types'
-import Avatar from './Avatar'
+import ChartBoard from './ChartBoard'
 
 export default function ViewChart() {
   const { id } = useParams<{ id: string }>()
@@ -21,7 +18,6 @@ export default function ViewChart() {
   const adminKey = searchParams.get('k')
   const [chart, setChart] = useState<ChartData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [showImages, setShowImages] = useState(true)
   const [showEditPanel, setShowEditPanel] = useState(false)
   const [newItemLabel, setNewItemLabel] = useState('')
   const [editingItemId, setEditingItemId] = useState<string | null>(null)
@@ -31,11 +27,6 @@ export default function ViewChart() {
   const [copiedLink, setCopiedLink] = useState<string | null>(null)
 
   const effectiveShareKey = shareKey || 'public'
-
-  const hasImages = useMemo(
-    () => chart?.items.some(i => i.image_url) ?? false,
-    [chart],
-  )
 
   useEffect(() => {
     if (!shareMenuOpen) return
@@ -183,15 +174,6 @@ export default function ViewChart() {
     }
   }
 
-  const twoAxisData = useMemo(() => {
-    if (!chart) return null
-    const itemsWithPositions = placeItems(chart.items)
-    const collisionInput = itemsWithPositions.map(i => ({ id: i.id, x: i.xPos, y: i.yPos, label: i.label }))
-    const adjusted = resolveCollisions(collisionInput, 100, 100, 22, 12)
-    const adjustedMap = new Map(adjusted.map(a => [a.id, a]))
-    return { itemsWithPositions, adjustedMap }
-  }, [chart])
-
   if (isLoading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
@@ -208,9 +190,6 @@ export default function ViewChart() {
       </div>
     )
   }
-
-  const xLabels = normalizeAxisPair(chart.x_label, 'Low', 'High')
-  const yLabels = normalizeAxisPair(chart.y_label, 'Low', 'High')
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
@@ -260,11 +239,6 @@ export default function ViewChart() {
             )}
           </div>
 
-          {hasImages && (
-            <button type="button" onClick={() => setShowImages(!showImages)} className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${showImages ? 'border-slate-300 bg-slate-100 text-slate-700' : 'border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
-              {showImages ? 'Hide images' : 'Show images'}
-            </button>
-          )}
         </div>
       </div>
 
@@ -274,63 +248,17 @@ export default function ViewChart() {
         </div>
       )}
 
-      {twoAxisData && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-          <div className="relative mx-auto w-full max-w-4xl" style={{ aspectRatio: '1' }}>
-            <div className="absolute inset-0 rounded-2xl bg-white" />
-
-            <div className="absolute bottom-6 left-1/2 top-6 w-px -translate-x-1/2 bg-slate-900" />
-            <div className="absolute left-1/2 top-4 -translate-x-1/2 border-b-[10px] border-l-[6px] border-r-[6px] border-transparent border-b-slate-900" />
-
-            <div className="absolute left-6 right-6 top-1/2 h-px -translate-y-1/2 bg-slate-900" />
-            <div className="absolute right-4 top-1/2 -translate-y-1/2 border-l-[10px] border-b-[6px] border-t-[6px] border-transparent border-l-slate-900" />
-
-            <div className="absolute -top-1 left-1/2 -translate-x-1/2 whitespace-nowrap text-[13px] font-semibold text-slate-700">{yLabels[1]}</div>
-            <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 whitespace-nowrap text-[13px] font-semibold text-slate-700">{yLabels[0]}</div>
-            <div className="absolute left-1 top-1/2 translate-y-2 whitespace-nowrap text-[13px] font-semibold text-slate-700">{xLabels[0]}</div>
-            <div className="absolute right-1 top-1/2 translate-y-2 whitespace-nowrap text-[13px] font-semibold text-slate-700">{xLabels[1]}</div>
-
-            <div className="absolute inset-10">
-              {twoAxisData.itemsWithPositions.map((item) => {
-                const adjusted = twoAxisData.adjustedMap.get(item.id)
-                const xPos = adjusted?.x ?? item.xPos
-                const yPos = adjusted?.y ?? item.yPos
-
-                return (
-                  <div
-                    key={item.id}
-                    className={`group absolute -translate-x-1/2 -translate-y-1/2 transition-all hover:z-20 hover:scale-110 ${!item.hasData ? 'opacity-60' : ''}`}
-                    style={{ left: `${Math.max(5, Math.min(95, xPos))}%`, top: `${Math.max(5, Math.min(95, yPos))}%` }}
-                  >
-                    {item.image_url && showImages ? (
-                      <div className="flex flex-col items-center">
-                        <div className="overflow-hidden rounded-md border border-slate-200/80 bg-white/90 shadow-sm" style={imageFrameSize(item.id)}>
-                          <img src={item.image_url} alt={item.label} className="h-full w-full object-cover" />
-                        </div>
-                        <span className="mt-1 max-w-[118px] truncate rounded bg-white/90 px-1.5 py-0.5 text-[11px] font-semibold text-slate-700 shadow-sm">{item.label}</span>
-                      </div>
-                    ) : (
-                      <span className={`whitespace-nowrap rounded px-2.5 py-1.5 text-sm font-semibold shadow-sm ${item.hasData ? 'bg-white/80 text-slate-900' : 'border border-dashed border-slate-300 bg-slate-100/80 text-slate-600'}`}>
-                        {item.label}
-                      </span>
-                    )}
-                    <div className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 -translate-x-1/2 opacity-0 transition-opacity group-hover:opacity-100">
-                      <div className="whitespace-nowrap rounded bg-slate-900 px-2 py-1 text-xs text-white shadow-lg">
-                        {item.label}{!item.hasData && <span className="ml-1 text-slate-400">(needs votes)</span>}
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-
-            {twoAxisData.itemsWithPositions.filter(i => !i.hasData).length > twoAxisData.itemsWithPositions.length / 2 && (
-              <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 whitespace-nowrap text-xs text-slate-500">
-                Vote to see where items land
-              </div>
-            )}
-          </div>
-        </div>
+      {chart.mode === 'two_axis' && (
+        <ChartBoard
+          title={chart.title}
+          xLabel={chart.x_label}
+          yLabel={chart.y_label}
+          items={chart.items}
+          voteCount={0}
+          interactive={true}
+          showTitle={false}
+          showBranding={false}
+        />
       )}
 
       {chart.creator_take && (
