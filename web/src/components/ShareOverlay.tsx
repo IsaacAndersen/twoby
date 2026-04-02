@@ -70,8 +70,16 @@ export default function ShareOverlay({
   }, [onClose])
 
   const getBlob = useCallback(async () => {
-    if (!chartRef.current) throw new Error('Chart not found')
-    return renderToBlob(chartRef.current, `chart-${chartId}`)
+    const el = chartRef.current
+    if (!el) throw new Error('Chart not found')
+    // Temporarily reset scale so html2canvas captures at full 1080x1080
+    const savedTransform = el.style.transform
+    el.style.transform = 'none'
+    try {
+      return await renderToBlob(el, `chart-${chartId}`)
+    } finally {
+      el.style.transform = savedTransform
+    }
   }, [chartId])
 
   const getShareUrl = useCallback(async () => {

@@ -65,7 +65,7 @@ function ChartItem({
             style={imageFrameSize(id, 40, 40)}
           />
           <span
-            className={`mt-0.5 max-w-[80px] truncate text-center text-[clamp(9px,1.5cqw,12px)] font-bold leading-tight ${color}`}
+            className={`mt-0.5 max-w-[120px] truncate text-center text-[clamp(9px,1.8cqw,16px)] font-bold leading-tight ${color}`}
           >
             {label}
           </span>
@@ -213,7 +213,7 @@ export default function ChartBoard({
         className="absolute left-1/2 -translate-x-1/2 font-semibold text-stone-700 whitespace-nowrap"
         style={{
           top: '2%',
-          fontSize: 'clamp(7px, 2cqw, 13px)',
+          fontSize: 'clamp(7px, 2.5cqw, 18px)',
         }}
       >
         {yHigh}
@@ -222,7 +222,7 @@ export default function ChartBoard({
         className="absolute left-1/2 -translate-x-1/2 font-semibold text-stone-700 whitespace-nowrap"
         style={{
           bottom: '2%',
-          fontSize: 'clamp(7px, 2cqw, 13px)',
+          fontSize: 'clamp(7px, 2.5cqw, 18px)',
         }}
       >
         {yLow}
@@ -231,7 +231,7 @@ export default function ChartBoard({
         className="absolute top-1/2 -translate-y-1/2 font-semibold text-stone-700 whitespace-nowrap"
         style={{
           left: '1%',
-          fontSize: 'clamp(7px, 2cqw, 13px)',
+          fontSize: 'clamp(7px, 2.5cqw, 18px)',
         }}
       >
         {xLow}
@@ -240,7 +240,7 @@ export default function ChartBoard({
         className="absolute top-1/2 -translate-y-1/2 font-semibold text-stone-700 whitespace-nowrap"
         style={{
           right: '1%',
-          fontSize: 'clamp(7px, 2cqw, 13px)',
+          fontSize: 'clamp(7px, 2.5cqw, 18px)',
         }}
       >
         {xHigh}
