@@ -2119,12 +2119,15 @@ if _STATIC_DIR.is_dir():
     if (_STATIC_DIR / "assets").is_dir():
         app.mount("/assets", StaticFiles(directory=str(_STATIC_DIR / "assets")), name="assets")
 
-    # SPA fallback: serve index.html for any non-API, non-static route
+    @app.get("/")
+    async def serve_root():
+        return FileResponse(str(_INDEX_HTML))
+
     @app.get("/{path:path}")
     async def spa_fallback(path: str):
-        # Try to serve a static file first
+        if path.startswith("api/"):
+            raise HTTPException(404, "Not Found")
         static_file = _STATIC_DIR / path
         if static_file.is_file() and ".." not in path:
             return FileResponse(str(static_file))
-        # Fall back to index.html for SPA routing
         return FileResponse(str(_INDEX_HTML))
