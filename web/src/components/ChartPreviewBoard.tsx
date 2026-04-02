@@ -1,5 +1,6 @@
 import type { Item } from '@/types'
-import { imageFrameSize, scoreToPosition, normalizeAxisPair } from '@/utils/chart'
+import { imageFrameSize, normalizeAxisPair } from '@/utils/chart'
+import { placeItems } from '@/utils/placement'
 
 interface ChartPreviewBoardProps {
   title: string
@@ -106,10 +107,7 @@ export default function ChartPreviewBoard({
   yLabel,
   items,
 }: ChartPreviewBoardProps) {
-  const points: Point[] = items.slice(0, 12).map((item) => {
-    const { xPos, yPos, hasData } = scoreToPosition(item)
-    return { ...item, xPos, yPos, hasData }
-  })
+  const points: Point[] = placeItems(items.slice(0, 12))
 
   const groups = groupByQuadrant(points)
 

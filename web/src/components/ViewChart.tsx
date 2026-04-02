@@ -8,7 +8,8 @@ import { useMetaTags } from '@/hooks/useMetaTags'
 import { resolveCollisions } from '@/utils/collision'
 import { createShortUrl } from '@/utils/urlShortening'
 import { buildShareTargets } from '@/utils/shareLinks'
-import { imageFrameSize, scoreToPosition, normalizeAxisPair } from '@/utils/chart'
+import { imageFrameSize, normalizeAxisPair } from '@/utils/chart'
+import { placeItems } from '@/utils/placement'
 import { API_BASE } from '@/config'
 import type { ChartData } from '@/types'
 import Avatar from './Avatar'
@@ -184,10 +185,7 @@ export default function ViewChart() {
 
   const twoAxisData = useMemo(() => {
     if (!chart) return null
-    const itemsWithPositions = chart.items.map(item => {
-      const { xPos, yPos, hasData } = scoreToPosition(item)
-      return { ...item, xPos, yPos, hasData }
-    })
+    const itemsWithPositions = placeItems(chart.items)
     const collisionInput = itemsWithPositions.map(i => ({ id: i.id, x: i.xPos, y: i.yPos, label: i.label }))
     const adjusted = resolveCollisions(collisionInput, 100, 100, 22, 12)
     const adjustedMap = new Map(adjusted.map(a => [a.id, a]))

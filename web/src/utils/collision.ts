@@ -173,7 +173,7 @@ function forceDirectedLayout(
 ): Point[] {
   const result = points.map(p => ({ ...p }))
   const iterations = 100  // More iterations for better convergence
-  const minDistance = Math.sqrt(labelWidth * labelWidth + labelHeight * labelHeight) * 1.5  // Minimum separation
+  const minDistance = Math.sqrt(labelWidth * labelWidth + labelHeight * labelHeight) * 0.8  // Minimum separation
 
   for (let iter = 0; iter < iterations; iter++) {
     const forces = result.map(() => ({ x: 0, y: 0 }))
@@ -213,8 +213,8 @@ function forceDirectedLayout(
     for (let i = 0; i < result.length; i++) {
       const dx = result[i].originalX - result[i].x
       const dy = result[i].originalY - result[i].y
-      forces[i].x += dx * 0.02 * damping
-      forces[i].y += dy * 0.02 * damping
+      forces[i].x += dx * 0.08 * damping
+      forces[i].y += dy * 0.08 * damping
     }
 
     // Apply forces with bounds checking
