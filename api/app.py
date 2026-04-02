@@ -1201,7 +1201,7 @@ def get_public(chart_id: str, s: str = Query(...)):
         
         cur.execute(
             """SELECT i.id, i.label, i.image_url, i.color, i.bg_color, i.description, i.sort_order,
-                      sc.r_x, sc.r_y, sc.x_mu, sc.y_mu, sc.tier_mu
+                      sc.r_x, sc.r_y, sc.x_mu, sc.y_mu, sc.tier_mu, sc.n_x, sc.n_y
             FROM items i
             LEFT JOIN scores sc ON sc.chart_id = i.chart_id AND sc.item_id = i.id
             WHERE i.chart_id = ? AND i.status = 'active'
@@ -1240,7 +1240,9 @@ def get_public(chart_id: str, s: str = Query(...)):
                 r_y=r["r_y"],
                 x_mu=r["x_mu"],
                 y_mu=r["y_mu"],
-                tier_mu=r["tier_mu"]
+                tier_mu=r["tier_mu"],
+                n_x=r.get("n_x"),
+                n_y=r.get("n_y")
             )
             for r in raw_items
         ]
@@ -1302,7 +1304,7 @@ def list_public_charts():
 
 def _get_chart_preview_items(cur, chart_id: str, limit: int = 16) -> list[dict]:
     cur.execute(
-        """SELECT i.id, i.label, i.image_url, sc.r_x, sc.r_y, sc.x_mu, sc.y_mu
+        """SELECT i.id, i.label, i.image_url, sc.r_x, sc.r_y, sc.x_mu, sc.y_mu, sc.n_x, sc.n_y
            FROM items i
            LEFT JOIN scores sc ON sc.chart_id = i.chart_id AND sc.item_id = i.id
            WHERE i.chart_id = ? AND i.status = 'active'
@@ -1328,6 +1330,8 @@ def _get_chart_preview_items(cur, chart_id: str, limit: int = 16) -> list[dict]:
             "r_y": d.get("r_y"),
             "x_mu": d.get("x_mu"),
             "y_mu": d.get("y_mu"),
+            "n_x": d.get("n_x"),
+            "n_y": d.get("n_y"),
         })
     return items
 
