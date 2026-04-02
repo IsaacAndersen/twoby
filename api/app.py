@@ -692,15 +692,15 @@ def _quantile_positions(items: list[dict]) -> list[dict]:
         if m["has_x"] and iid in x_q:
             xp = x_q[iid]
         else:
-            random.seed(iid + "-x")
-            raw = random.random()
+            rng = random.Random(iid + "-x")
+            raw = rng.random()
             xp = raw * 40 + 5 if raw < 0.5 else raw * 40 + 55
 
         if m["has_y"] and iid in y_q:
             yp = 100 - y_q[iid]  # invert Y for screen coords
         else:
-            random.seed(iid + "-y")
-            raw = random.random()
+            rng = random.Random(iid + "-y")
+            raw = rng.random()
             yp = raw * 40 + 5 if raw < 0.5 else raw * 40 + 55
 
         n_votes = max(m["n_x"], m["n_y"])

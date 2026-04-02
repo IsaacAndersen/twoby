@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Share2, Plus, Trash2, Pencil, X, Check, PauseCircle, PlayCircle, Download } from 'lucide-react'
+import { downloadBlob } from '@/utils/renderChart'
 import { useMetaTags } from '@/hooks/useMetaTags'
 import { API_BASE } from '@/config'
 import type { ChartData } from '@/types'
@@ -93,15 +94,7 @@ export default function ViewChart() {
     try {
       const response = await fetch(`${API_BASE}/api/charts/${id}/export-csv?k=${adminKey}`)
       if (response.ok) {
-        const blob = await response.blob()
-        const url = window.URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `chart_${id}_export.csv`
-        document.body.appendChild(a)
-        a.click()
-        window.URL.revokeObjectURL(url)
-        document.body.removeChild(a)
+        downloadBlob(await response.blob(), `chart_${id}_export.csv`)
       }
     } catch (error) {
       console.error('Failed to export CSV:', error)

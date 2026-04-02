@@ -125,7 +125,6 @@ export default function ChartBoard({
       className="relative aspect-square w-full bg-white overflow-hidden"
       style={{ containerType: 'inline-size' }}
     >
-      {/* Title — top-left */}
       {showTitle && (
         <div className="absolute left-[4%] top-[3%] z-10 max-w-[42%]">
           <div
@@ -143,7 +142,6 @@ export default function ChartBoard({
         </div>
       )}
 
-      {/* Branding — bottom-right */}
       {showBranding && (
         <div
           className="absolute bottom-[2%] right-[3%] z-10 font-semibold text-stone-300 select-none"
@@ -153,11 +151,8 @@ export default function ChartBoard({
         </div>
       )}
 
-      {/* Axis area — inset 10% from all edges to leave room for labels and arrows */}
       <div className="absolute inset-[10%]">
-        {/* Y axis (vertical) — centered horizontally */}
         <div className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-stone-900" />
-        {/* Y axis top arrow */}
         <div
           className="absolute left-1/2 -translate-x-1/2 -top-[7px]"
           style={{
@@ -168,7 +163,6 @@ export default function ChartBoard({
             borderBottom: '8px solid rgb(28 25 23)',
           }}
         />
-        {/* Y axis bottom arrow */}
         <div
           className="absolute left-1/2 -translate-x-1/2 -bottom-[7px]"
           style={{
@@ -180,9 +174,7 @@ export default function ChartBoard({
           }}
         />
 
-        {/* X axis (horizontal) — centered vertically */}
         <div className="absolute top-1/2 left-0 right-0 h-px -translate-y-1/2 bg-stone-900" />
-        {/* X axis right arrow */}
         <div
           className="absolute top-1/2 -translate-y-1/2 -right-[7px]"
           style={{
@@ -193,7 +185,6 @@ export default function ChartBoard({
             borderLeft: '8px solid rgb(28 25 23)',
           }}
         />
-        {/* X axis left arrow */}
         <div
           className="absolute top-1/2 -translate-y-1/2 -left-[7px]"
           style={{
@@ -205,7 +196,6 @@ export default function ChartBoard({
           }}
         />
 
-        {/* Items — positioned within inner 6%-94% of this axis area */}
         <div className="absolute inset-[6%]">
           {placedItems.map(({ item, xPos, yPos }) => (
             <ChartItem
@@ -219,8 +209,6 @@ export default function ChartBoard({
         </div>
       </div>
 
-      {/* Axis labels — outside the axis area */}
-      {/* Y high (top) */}
       <div
         className="absolute left-1/2 -translate-x-1/2 font-semibold text-stone-700 whitespace-nowrap"
         style={{
@@ -230,7 +218,6 @@ export default function ChartBoard({
       >
         {yHigh}
       </div>
-      {/* Y low (bottom) */}
       <div
         className="absolute left-1/2 -translate-x-1/2 font-semibold text-stone-700 whitespace-nowrap"
         style={{
@@ -240,7 +227,6 @@ export default function ChartBoard({
       >
         {yLow}
       </div>
-      {/* X low (left) */}
       <div
         className="absolute top-1/2 -translate-y-1/2 font-semibold text-stone-700 whitespace-nowrap"
         style={{
@@ -250,7 +236,6 @@ export default function ChartBoard({
       >
         {xLow}
       </div>
-      {/* X high (right) */}
       <div
         className="absolute top-1/2 -translate-y-1/2 font-semibold text-stone-700 whitespace-nowrap"
         style={{

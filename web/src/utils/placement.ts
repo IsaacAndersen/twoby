@@ -147,8 +147,8 @@ export function placeItems(items: Item[]): PlacedItem[] {
         : 55 + (raw - 0.5) * 2 * (QUANTILE_MAX - 55)
     }
 
-    // Confidence-based gravity: pull low-confidence items toward quadrant center
-    if (confidence < 1) {
+    // Confidence-based gravity: pull low-confidence voted items toward quadrant center
+    if (hasData && confidence < 1) {
       const qcX = quadrantCenter(xPos)
       const qcY = quadrantCenter(yPos)
       xPos = lerp(qcX, xPos, confidence)

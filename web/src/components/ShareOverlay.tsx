@@ -38,8 +38,9 @@ export default function ShareOverlay({
 }: ShareOverlayProps) {
   const chartRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const [copyState, setCopyState] = useState<CopyState>('idle')
+  const [lastCopiedTarget, setLastCopiedTarget] = useState<string | null>(null)
   const [linkCopyState, setLinkCopyState] = useState<CopyState>('idle')
+  const [isSharing, setIsSharing] = useState(false)
 
   // Scale the 1080×1080 chart to fit the container
   useEffect(() => {
@@ -84,17 +85,18 @@ export default function ShareOverlay({
   }, [chartId, shareKey, title])
 
   async function handleCopyAndOpen(target: 'x' | 'reddit') {
-    setCopyState('loading')
+    setIsSharing(true)
     try {
       const [blob, url] = await Promise.all([getBlob(), getShareUrl()])
       await copyImageToClipboard(blob)
       const links = buildShareTargets(url, `${title} on twoby`)
       window.open(links[target], '_blank', 'noopener,noreferrer')
-      setCopyState('done')
-      setTimeout(() => setCopyState('idle'), 2000)
+      setLastCopiedTarget(target)
+      setTimeout(() => setLastCopiedTarget(null), 2000)
     } catch (err) {
       console.error('Share failed:', err)
-      setCopyState('idle')
+    } finally {
+      setIsSharing(false)
     }
   }
 
@@ -104,8 +106,8 @@ export default function ShareOverlay({
       const shared = await shareViaWebShareAPI(blob, title, url)
       if (!shared) {
         await copyImageToClipboard(blob)
-        setCopyState('done')
-        setTimeout(() => setCopyState('idle'), 2000)
+        setLastCopiedTarget('webshare')
+        setTimeout(() => setLastCopiedTarget(null), 2000)
       }
     } catch (err) {
       console.error('Web share failed:', err)
@@ -176,26 +178,24 @@ export default function ShareOverlay({
               variant="outline"
               className="flex items-center justify-center gap-2 h-11"
               onClick={() => handleCopyAndOpen('x')}
-              disabled={copyState === 'loading'}
+              disabled={isSharing}
             >
-              {/* X (Twitter) logo */}
               <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current" aria-hidden="true">
                 <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.748l7.73-8.835L1.254 2.25H8.08l4.259 5.63 5.905-5.63Zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
               </svg>
-              {copyState === 'done' ? 'Copied!' : 'Share to X'}
+              {lastCopiedTarget === 'x' ? 'Copied!' : 'Share to X'}
             </Button>
 
             <Button
               variant="outline"
               className="flex items-center justify-center gap-2 h-11"
               onClick={() => handleCopyAndOpen('reddit')}
-              disabled={copyState === 'loading'}
+              disabled={isSharing}
             >
-              {/* Reddit logo */}
               <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current" aria-hidden="true">
                 <path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.248-.561 1.248-1.249 0-.688-.561-1.249-1.249-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249zm-5.466 3.99a.327.327 0 0 0-.231.094.33.33 0 0 0 0 .463c.842.842 2.484.913 2.961.913.477 0 2.105-.056 2.961-.913a.361.361 0 0 0 .029-.463.33.33 0 0 0-.464 0c-.547.533-1.684.73-2.512.73-.828 0-1.979-.196-2.512-.73a.326.326 0 0 0-.232-.095z" />
               </svg>
-              {copyState === 'done' ? 'Copied!' : 'Share to Reddit'}
+              {lastCopiedTarget === 'reddit' ? 'Copied!' : 'Share to Reddit'}
             </Button>
 
             <Button
