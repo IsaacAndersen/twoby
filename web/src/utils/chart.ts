@@ -1,5 +1,3 @@
-import type { Item } from '@/types'
-
 export function seededRandom(seed: string): number {
   let hash = 0
   for (let i = 0; i < seed.length; i++) {
@@ -19,23 +17,6 @@ export function imageFrameSize(seed: string, baseMin = 40, baseRange = 20): { wi
   return { width: base, height: Math.round(base * (rh / rw)) }
 }
 
-export function scoreToPosition(item: Item): { xPos: number; yPos: number; hasData: boolean } {
-  const hasXData = (item.x_mu !== undefined && item.x_mu !== null)
-    || (item.r_x !== undefined && Math.abs(item.r_x - 1000) > 5)
-  const hasYData = (item.y_mu !== undefined && item.y_mu !== null)
-    || (item.r_y !== undefined && Math.abs(item.r_y - 1000) > 5)
-
-  const xScore = hasXData
-    ? (item.x_mu !== undefined && item.x_mu !== null ? item.x_mu : ((item.r_x || 1000) - 1000) / 5)
-    : (seededRandom(`${item.id}-x`) - 0.5) * 140
-  const yScore = hasYData
-    ? (item.y_mu !== undefined && item.y_mu !== null ? item.y_mu : ((item.r_y || 1000) - 1000) / 5)
-    : (seededRandom(`${item.id}-y`) - 0.5) * 140
-
-  const xPos = ((xScore + 100) / 200) * 100
-  const yPos = 100 - ((yScore + 100) / 200) * 100
-  return { xPos, yPos, hasData: hasXData || hasYData }
-}
 
 export function normalizeAxisPair(axisLabel: string | undefined, fallbackLow: string, fallbackHigh: string): [string, string] {
   const raw = (axisLabel || '').trim()

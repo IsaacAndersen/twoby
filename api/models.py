@@ -54,6 +54,8 @@ class Item(BaseModel):
     x_mu: Optional[float] = None
     y_mu: Optional[float] = None
     tier_mu: Optional[float] = None
+    n_x: Optional[int] = None
+    n_y: Optional[int] = None
 
 class PublicChartResponse(BaseModel):
     title: str

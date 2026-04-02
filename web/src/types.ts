@@ -6,6 +6,8 @@ export interface Item {
   r_y?: number
   x_mu?: number
   y_mu?: number
+  n_x?: number
+  n_y?: number
 }
 
 export interface ChartData {

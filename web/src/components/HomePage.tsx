@@ -2,11 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Users, Clock, Search } from 'lucide-react'
+import { Search } from 'lucide-react'
 import { formatRelativeTime } from '@/utils/timeFormatting'
 import { API_BASE } from '@/config'
 import type { Item } from '@/types'
-import ChartPreviewBoard from './ChartPreviewBoard'
+import ChartBoard from './ChartBoard'
 
 type FeedFilter = 'trending' | 'new' | 'featured'
 
@@ -188,14 +188,15 @@ export default function HomePage() {
 
             return (
               <Card key={chart.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md">
-                <Link to={resultsUrl} className="block bg-slate-950">
-                  <ChartPreviewBoard
+                <Link to={resultsUrl} className="block">
+                  <ChartBoard
                     title={chart.title}
-                    voteCount={chart.vote_count}
-                    itemCount={chart.item_count}
                     xLabel={chart.x_label}
                     yLabel={chart.y_label}
                     items={chart.preview_items || []}
+                    voteCount={chart.vote_count}
+                    showTitle={true}
+                    showBranding={true}
                   />
                 </Link>
 
